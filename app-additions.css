@@ -1,0 +1,98 @@
+/* ═══════════════════════════════════════════════════════════════
+   OPSID Portal — CSS Additions
+   Tambahkan isi file ini ke bagian bawah src/app.css yang sudah ada.
+   JANGAN replace file lama — hanya append.
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Additional color tokens ───────────────────────────────── */
+:root {
+  --purple: #A78BFA;
+  --purple-soft: rgba(167,139,250,.1);
+}
+
+/* ── Topbar search ─────────────────────────────────────────── */
+.topbar-search {
+  display:flex; align-items:center; gap:8px;
+  padding:7px 12px; background:var(--bg-2); border:1px solid var(--bd-1);
+  border-radius:var(--r-md); color:var(--fg-4); font-size:12px; width:220px;
+  transition:border-color .15s;
+}
+.topbar-search:focus-within { border-color:var(--pri); }
+.topbar-search input {
+  flex:1; background:none; border:none; padding:0;
+  color:var(--fg-1); font-size:12px; outline:none; font-family:inherit;
+}
+.topbar-search input::placeholder { color:var(--fg-4); }
+
+/* ── Notification dot ──────────────────────────────────────── */
+.notif-dot {
+  position:absolute; top:7px; right:7px;
+  width:7px; height:7px; border-radius:50%;
+  background:var(--danger); border:2px solid var(--bg-0);
+}
+
+/* ── Button variants ───────────────────────────────────────── */
+.btn-secondary { background:var(--bg-2); color:var(--fg-1); border-color:var(--bd-2); }
+.btn-secondary:hover { background:var(--bg-3); border-color:var(--bd-3); }
+.btn-danger { background:rgba(248,113,113,.1); color:var(--danger); border-color:rgba(248,113,113,.25); }
+.btn-danger:hover { background:rgba(248,113,113,.18); }
+
+/* ── Stat cards (redesigned KPIs) ──────────────────────────── */
+.stat-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; }
+.stat-card {
+  background:var(--bg-1); border:1px solid var(--bd-1); border-radius:var(--r-lg);
+  padding:18px 20px; display:flex; flex-direction:column; gap:8px; transition:all .15s;
+}
+.stat-card:hover { border-color:var(--bd-2); transform:translateY(-1px); }
+.stat-card-head { display:flex; align-items:center; justify-content:space-between; }
+.stat-label { font-size:11px; font-weight:600; color:var(--fg-3); text-transform:uppercase; letter-spacing:.06em; }
+.stat-icon { width:36px; height:36px; border-radius:var(--r-md); display:grid; place-items:center; flex-shrink:0; }
+.stat-val { font-size:30px; font-weight:700; color:var(--fg-1); letter-spacing:-.03em; line-height:1; }
+.stat-sub { font-size:12px; color:var(--fg-3); }
+.prog-bar { height:4px; background:var(--bg-3); border-radius:2px; overflow:hidden; }
+.prog-fill { height:100%; border-radius:2px; transition:width .6s ease; }
+
+/* ── Additional tag colors ─────────────────────────────────── */
+.tag-warn { color:var(--warn); background:rgba(251,191,36,.1); border-color:rgba(251,191,36,.25); }
+.tag-danger { color:var(--danger); background:rgba(248,113,113,.1); border-color:rgba(248,113,113,.25); }
+.tag-purple { color:var(--purple); background:var(--purple-soft); border-color:rgba(167,139,250,.25); }
+
+/* ── Tab bar ───────────────────────────────────────────────── */
+.tab-bar { display:flex; gap:2px; padding:4px; background:var(--bg-2); border-radius:var(--r-md); }
+.tab-btn {
+  display:flex; align-items:center; gap:7px;
+  padding:8px 16px; border-radius:var(--r-sm);
+  font-size:13px; font-weight:500; color:var(--fg-3);
+  transition:all .15s; background:none; border:none; cursor:pointer; font-family:inherit;
+}
+.tab-btn:hover { color:var(--fg-2); background:var(--bg-3); }
+.tab-btn.active { color:var(--fg-1); background:var(--bg-1); box-shadow:0 1px 2px rgba(0,0,0,.3); }
+
+/* ── Modal (updated structure) ─────────────────────────────── */
+.modal-overlay {
+  position:fixed; inset:0; background:rgba(0,0,0,.6);
+  backdrop-filter:blur(8px); z-index:200;
+  display:grid; place-items:center; padding:24px;
+}
+.modal-head {
+  padding:20px 24px; border-bottom:1px solid var(--bd-1);
+  display:flex; align-items:center; justify-content:space-between;
+}
+.modal-head h3 { font-size:16px; font-weight:600; margin:0; }
+.modal-body { padding:20px 24px; }
+.modal-foot {
+  padding:16px 24px; border-top:1px solid var(--bd-1);
+  display:flex; justify-content:flex-end; gap:8px;
+}
+.field-hint { font-size:10px; color:var(--fg-4); }
+
+/* ── Main scroll area ──────────────────────────────────────── */
+.main-scroll { flex:1; overflow-y:auto; display:flex; flex-direction:column; }
+
+/* ── Tenant grid ───────────────────────────────────────────── */
+.tenant-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:14px; }
+
+/* ── Responsive additions ──────────────────────────────────── */
+@media(max-width:1200px) { .stat-grid { grid-template-columns:repeat(2,1fr); } }
+@media(max-width:1100px) { .tenant-grid { grid-template-columns:1fr; } }
+@media(max-width:900px) { .split { grid-template-columns:1fr; } }

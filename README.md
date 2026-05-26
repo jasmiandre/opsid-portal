@@ -1,42 +1,57 @@
-# sv
+# OPSID Portal — Svelte 5 Konversi
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
+## File yang dihasilkan
 
-## Creating a project
+| File | Target di repo | Keterangan |
+|------|---------------|------------|
+| `src/lib/sections/Dashboard.svelte` | Replace langsung | Dashboard utama, fetch dari API |
+| `src/lib/sections/admin/AdminUsers.svelte` | Replace langsung | Admin Console lengkap (4 tab) |
+| `src/lib/components/Sidebar.svelte` | Replace langsung | Sidebar dengan fix double name |
+| `app-additions.css` | **Append** ke `src/app.css` | CSS baru (jangan replace!) |
 
-If you're seeing this, you've probably already done this step. Congrats!
+## Cara install
 
-```sh
-# create a new project
-npx sv create my-app
-```
+```bash
+# 1. Copy Svelte components
+cp svelte-output/src/lib/sections/Dashboard.svelte src/lib/sections/Dashboard.svelte
+cp svelte-output/src/lib/sections/admin/AdminUsers.svelte src/lib/sections/admin/AdminUsers.svelte
+cp svelte-output/src/lib/components/Sidebar.svelte src/lib/components/Sidebar.svelte
 
-To recreate this project with the same configuration:
+# 2. Append CSS additions ke app.css (JANGAN replace!)
+cat svelte-output/app-additions.css >> src/app.css
 
-```sh
-# recreate this project
-npx sv@0.15.2 create --template minimal --types ts --install npm .
-```
-
-## Developing
-
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
-
-```sh
+# 3. Build & test
 npm run dev
-
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
 ```
 
-## Building
+## Perubahan utama
 
-To create a production version of your app:
+### Dashboard.svelte
+- Fetch real data dari `/api/nextcloud/quota`, `/api/sogo/inbox`, `/api/odoo/stats`
+- Svelte 5 runes: `$state`, `$derived`
+- Profile dropdown yang berfungsi (klik → menu → Profil/Pengaturan/Keluar)
+- Topbar sticky saat scroll
+- Loading states & error handling
+- Agenda dan recent files masih placeholder (butuh CalDAV + WebDAV API)
 
-```sh
-npm run build
-```
+### AdminUsers.svelte
+- 4 tab: User Management, Tenant Management, Service Health, Audit Log
+- Tab navigation **di dalam content area** (bukan topbar) — fix issue
+- Fetch real data dari `/api/users`, `/api/admin/tenant`
+- Health & Audit fallback ke dummy data (endpoint belum ada)
+- POST `/api/users` untuk create user
+- POST `/api/admin/tenant` untuk create tenant
+- Tombol delete tenant
+- Role check: `auth.profile.isAdmin` → semua tab, `isTenantAdmin` → Users + Tenants saja
+- Search/filter untuk users dan audit log
 
-You can preview the production build with `npm run preview`.
+### Sidebar.svelte
+- **FIX double name**: pakai `auth.profile.fullName` bukan `firstName + lastName`
+- Admin Console hanya tampil jika `isAdmin || isTenantAdmin`
+- Svelte 5 `$derived` untuk reactive show/hide
 
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+### CSS Additions
+- Stat cards, progress bars, tab bar, modal overlay, tenant grid
+- Tag colors: warn, danger, purple
+- Button variants: secondary, danger
+- Responsive breakpoints

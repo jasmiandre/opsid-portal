@@ -26,6 +26,9 @@
     { key:'cloud', label:'Nextcloud', icon:'cloud', tile:'cloud', url: APP_URLS.cloud },
     { key:'erp',   label:'Odoo ERP',  icon:'box',   tile:'erp',   url: APP_URLS.erp   },
   ] as const;
+
+  // Show Admin Console only for admins
+  let showAdmin = $derived(auth.profile.isAdmin || auth.profile.isTenantAdmin);
 </script>
 
 <aside class="sidebar">
@@ -41,7 +44,7 @@
       </div>
     </div>
 
-    <div class="nav-group" style="margin-top:16px">
+    <div class="nav-group" style="margin-top:18px">
       <button class="nav-item" aria-current={scene === 'dashboard'} onclick={onDashboard}>
         {@html I.grid} Dashboard
       </button>
@@ -51,7 +54,7 @@
       <div class="nav-label">Aplikasi</div>
       {#each apps as a (a.key)}
         <a class="nav-item" href={a.url} target="_blank" rel="noopener">
-          <span class="tile tile-sm tile-{a.tile}" style="width:22px;height:22px;border-radius:6px">
+          <span class="tile tile-sm tile-{a.tile}" style="width:24px;height:24px;border-radius:6px">
             {@html (I as any)[a.icon]}
           </span>
           {a.label}
@@ -63,11 +66,13 @@
 
   <!-- BOTTOM: Sistem + User -->
   <div class="sb-bot">
-    <div class="nav-group" style="margin-top:0;padding-top:12px;border-top:1px solid var(--bd-1)">
+    <div class="nav-group" style="margin-top:0;padding-top:14px;border-top:1px solid var(--bd-1)">
       <div class="nav-label">Sistem</div>
-      <button class="nav-item" aria-current={scene === 'admin'} onclick={onAdmin} style="color:#A78BFA">
-        {@html I.shield} Admin Console
-      </button>
+      {#if showAdmin}
+        <button class="nav-item" aria-current={scene === 'admin'} onclick={onAdmin} style="color:{scene === 'admin' ? 'var(--pri)' : '#A78BFA'}">
+          {@html I.shield} Admin Console
+        </button>
+      {/if}
       <button class="nav-item">
         {@html I.settings} Pengaturan
       </button>
@@ -79,7 +84,8 @@
     <div class="user-card">
       <div class="av">{auth.profile.initials}</div>
       <div class="user-info">
-        <div class="user-name">{auth.profile.firstName} {auth.profile.lastName || ''}</div>
+        <!-- FIX: Use fullName instead of firstName + lastName to avoid double name -->
+        <div class="user-name">{auth.profile.fullName}</div>
         <div class="user-email">{auth.profile.email}</div>
       </div>
     </div>
@@ -87,37 +93,19 @@
 </aside>
 
 <style>
-  .sb {
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-    height: 100%;
-    overflow: hidden;
-    background: var(--bg-1);
-    border-right: 1px solid var(--bd-1);
-    padding: 18px 12px;
-  }
-  .sb-top {
-    flex: 1;
-    overflow-y: auto;
-    min-height: 0;
-  }
-  .sb-bot {
-    flex-shrink: 0;
-  }
+  .sb-top { flex:1; overflow-y:auto; min-height:0; }
+  .sb-top::-webkit-scrollbar { width:0; }
+  .sb-bot { flex-shrink:0; }
   .user-card {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 10px 8px;
-    margin-top: 4px;
-    border-top: 1px solid var(--bd-1);
-    border-radius: var(--r-md);
-    cursor: pointer;
-    transition: .12s;
+    display:flex; align-items:center; gap:10px;
+    padding:12px 10px; margin-top:8px;
+    border-top:1px solid var(--bd-1); border-radius:var(--r-md);
+    cursor:pointer; transition:background .15s;
   }
-  .user-card:hover { background: var(--bg-2); }
-  .user-info { flex: 1; min-width: 0; }
-  .user-name { font-size: 12px; font-weight: 500; color: var(--fg-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .user-email { font-size: 10px; color: var(--fg-4); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .user-card:hover { background:var(--bg-2); }
+  .user-info { flex:1; min-width:0; }
+  .user-name { font-size:12px; font-weight:600; color:var(--fg-1); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .user-email { font-size:10px; color:var(--fg-4); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ext { margin-left:auto; color:var(--fg-4); opacity:0; transition:opacity .12s; }
+  .nav-item:hover .ext { opacity:1; }
 </style>
