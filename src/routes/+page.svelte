@@ -40,3 +40,9 @@
     </main>
   </div>
 {/if}
+
+<style>
+  .shell { display:flex; height:100vh; overflow:hidden; }
+  main { flex:1; overflow:hidden; display:flex; flex-direction:column; min-width:0; }
+  .boot { display:grid; place-items:center; height:100vh; color:var(--fg-3); }
+</style>

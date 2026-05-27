@@ -80,15 +80,6 @@
         {@html I.logout} Keluar
       </button>
     </div>
-
-    <div class="user-card">
-      <div class="av">{auth.profile.initials}</div>
-      <div class="user-info">
-        <!-- FIX: Use fullName instead of firstName + lastName to avoid double name -->
-        <div class="user-name">{auth.profile.fullName}</div>
-        <div class="user-email">{auth.profile.email}</div>
-      </div>
-    </div>
   </div>
 </aside>
 

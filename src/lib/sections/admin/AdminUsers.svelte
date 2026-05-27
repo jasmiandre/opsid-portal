@@ -58,7 +58,35 @@
 
   // Add user form
   let newUser = $state({ username:'', fullname:'', email:'', dept:'', role:'Staff', password:'' });
-  let newTenant = $state({ name:'', slug:'', primaryColor:'#3B82F6', planNextcloudGb: 50 });
+  let newTenant = $state({ 
+    name:'', slug:'', primaryColor:'#3B82F6', logoUrl:'',
+    planNextcloudGb:50, planEmailGb:50, planOdooGb:50,
+    useCustomDomain:false, domain:'',
+    adminName:'', adminPassword:''
+  });
+  
+  // Auto-generate slug dari nama
+  function generateSlug(name: string): string {
+    return name.toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, '')
+      .replace(/\s+/g, '-')
+      .replace(/-+/g, '-')
+      .trim();
+  }
+  
+  let tenantAdminEmail = $derived(
+    newTenant.useCustomDomain && newTenant.domain 
+      ? 'admin@' + newTenant.domain
+      : newTenant.slug 
+        ? 'admin@' + newTenant.slug + '.opsid.web.id'
+        : 'admin@yourorg.opsid.web.id'
+  );
+  
+  let tenantSubdomain = $derived(
+    newTenant.useCustomDomain && newTenant.domain
+      ? newTenant.domain
+      : (newTenant.slug || 'yourorg') + '.opsid.web.id'
+  );
   let submitting = $state(false);
 
   // ── Derived ─────────────────────────────────────────────────
@@ -201,7 +229,12 @@
   }
 
   async function createTenant() {
-    if (!newTenant.name || !newTenant.slug) return;
+    if (!newTenant.name) return;
+    if (!newTenant.slug) newTenant.slug = generateSlug(newTenant.name);
+    if (!newTenant.adminName || !newTenant.adminPassword) {
+      alert('Nama admin dan password wajib diisi');
+      return;
+    }
     submitting = true;
     try {
       const res = await fetch('/api/admin/tenant', {
@@ -212,7 +245,7 @@
       const data = await res.json();
       if (data.ok) {
         showAddTenant = false;
-        newTenant = { name:'', slug:'', primaryColor:'#3B82F6', planNextcloudGb: 50 };
+        newTenant = { name:'', slug:'', primaryColor:'#3B82F6', logoUrl:'', planNextcloudGb:50, planEmailGb:50, planOdooGb:50, useCustomDomain:false, domain:'', adminName:'', adminPassword:'' };
         await fetchTenants();
       }
     } catch (e) { console.error('Create tenant failed:', e); }
@@ -229,6 +262,37 @@
     ]);
     loading = false;
   });
+  let impersonating = $state(false);
+  let impersonateTarget = $state('');
+
+  async function doImpersonate(username: string, name: string) {
+    try {
+    // Buka Keycloak admin impersonate di tab baru
+    // Keycloak akan handle session switch via browser cookie
+    const kcAdminUrl = `https://auth.opsid.web.id/admin/master/console/#/opsid-internal/users`;
+    
+    // Catat audit log
+    await fetch('/api/admin/impersonate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username })
+    });
+
+    impersonating = true;
+    impersonateTarget = name;
+    
+    // Redirect portal ke dashboard dengan banner impersonate
+    // User perlu login ulang sebagai target user
+    alert('Untuk impersonate ' + name + ':\n1. Buka Keycloak Admin\n2. Users → ' + username + ' → Impersonate');
+    window.open(kcAdminUrl, '_blank');
+  } catch {
+    alert('Koneksi gagal');
+  }
+
+  function stopImpersonate() {
+    impersonating = false;
+    impersonateTarget = '';
+  }
 </script>
 
 <div class="main-scroll">
@@ -339,7 +403,7 @@
                   </td>
                   <td>
                     <div class="action-btns">
-                      <button class="btn btn-ghost btn-sm" title="Impersonate">{@html I.eye}</button>
+                      <button class="btn btn-ghost btn-sm" title="Impersonate" onclick={() => doImpersonate(u.username, u.name ?? u.username)}>{@html I.eye}</button>
                       <button class="btn btn-ghost btn-sm" title="Edit">{@html I.edit}</button>
                       <button class="btn btn-ghost btn-sm" style="color:var(--danger)" title="Suspend">{@html I.lock}</button>
                     </div>
@@ -437,19 +501,61 @@
         <div class="modal-overlay" onclick={() => showAddTenant = false}>
           <div class="modal" onclick={(e) => e.stopPropagation()}>
             <div class="modal-head">
-              <h3>Onboarding Tenant Baru</h3>
+              <h3>Buat Organisasi Baru</h3>
               <button class="btn-icon" onclick={() => showAddTenant = false}>{@html I.x}</button>
             </div>
             <div class="modal-body">
               <div class="form-grid">
-                <div class="field"><label for="t-slug">Slug (subdomain)</label><input id="t-slug" placeholder="client" bind:value={newTenant.slug} /></div>
-                <div class="field"><label for="t-name">Nama Perusahaan</label><input id="t-name" placeholder="PT Contoh Indonesia" bind:value={newTenant.name} /></div>
+                <div class="field" style="grid-column:span 2">
+                  <label for="t-name">Nama Organisasi</label>
+                  <input id="t-name" placeholder="PT Contoh Indonesia" bind:value={newTenant.name} 
+                    oninput={() => { if(!newTenant.slug) newTenant.slug = generateSlug(newTenant.name); }} />
+                </div>
+                <div class="field">
+                  <label for="t-slug">Slug (opsional)</label>
+                  <input id="t-slug" placeholder="auto dari nama" bind:value={newTenant.slug} />
+                  <span style="font-size:11px;color:var(--fg-4);margin-top:4px;display:block">Preview: {tenantSubdomain}</span>
+                </div>
                 <div class="field"><label for="t-color">Warna Utama</label><input id="t-color" type="color" bind:value={newTenant.primaryColor} style="height:40px" /></div>
-                <div class="field"><label for="t-quota">Kuota Storage</label>
-                  <select id="t-quota" bind:value={newTenant.planNextcloudGb}><option value={10}>10 GB</option><option value={50}>50 GB</option><option value={100}>100 GB</option><option value={500}>500 GB</option></select>
+                <div class="field"><label for="t-logo">Logo URL</label><input id="t-logo" placeholder="https://..." bind:value={newTenant.logoUrl} /></div>
+                <div class="field">
+                  <label for="t-nc">Quota Nextcloud (GB)</label>
+                  <input id="t-nc" type="number" min="1" bind:value={newTenant.planNextcloudGb} />
+                </div>
+                <div class="field">
+                  <label for="t-em">Quota Email (GB)</label>
+                  <input id="t-em" type="number" min="1" bind:value={newTenant.planEmailGb} />
+                </div>
+                <div class="field">
+                  <label for="t-od">Quota Odoo (GB)</label>
+                  <input id="t-od" type="number" min="1" bind:value={newTenant.planOdooGb} />
+                </div>
+                <div class="field" style="grid-column:span 3">
+                  <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+                    <input type="checkbox" bind:checked={newTenant.useCustomDomain} />
+                    Organisasi punya domain sendiri
+                  </label>
+                </div>
+                {#if newTenant.useCustomDomain}
+                <div class="field" style="grid-column:span 3">
+                  <label for="t-domain">Domain Custom</label>
+                  <input id="t-domain" placeholder="workspace.perusahaan.co.id" bind:value={newTenant.domain} />
+                </div>
+                {/if}
+                <div class="field" style="grid-column:span 3;padding:12px;background:var(--bg-2);border-radius:8px;border:1px solid var(--bd-1)">
+                  <span style="font-size:11px;color:var(--fg-4)">Email admin yang akan dibuat:</span>
+                  <div style="font-size:14px;font-weight:600;color:var(--pri);margin-top:4px">{tenantAdminEmail}</div>
+                </div>
+                <div class="field" style="grid-column:span 2">
+                  <label for="t-aname">Nama Admin Tenant</label>
+                  <input id="t-aname" placeholder="Budi Santoso" bind:value={newTenant.adminName} />
+                </div>
+                <div class="field">
+                  <label for="t-apass">Password Awal Admin</label>
+                  <input id="t-apass" type="password" placeholder="Min 8 karakter" bind:value={newTenant.adminPassword} />
                 </div>
               </div>
-              <p class="field-hint" style="margin-top:14px">Sistem akan buat Nginx config, SSL certificate, Keycloak realm, dan isolasi Nextcloud + SOGo.</p>
+              <p class="field-hint" style="margin-top:14px">* Sistem otomatis buat Nginx config + Keycloak Organization + FreeIPA group + user admin dalam &lt;30 detik.</p>
             </div>
             <div class="modal-foot">
               <button class="btn btn-secondary" onclick={() => showAddTenant = false}>Batal</button>

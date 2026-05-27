@@ -325,7 +325,7 @@
 
 <style>
   /* ── Layout ──────────────────────────────────────────────── */
-  .main-scroll { flex:1; overflow-y:auto; display:flex; flex-direction:column; }
+  .main-scroll { flex:1; overflow-y:auto; display:flex; flex-direction:column; min-height:0; }
   .main-pad { flex:1; padding:28px; display:flex; flex-direction:column; gap:22px; max-width:1320px; margin:0 auto; width:100%; }
 
   /* ── Topbar ──────────────────────────────────────────────── */
