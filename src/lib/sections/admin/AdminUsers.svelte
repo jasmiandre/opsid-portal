@@ -4,90 +4,90 @@
 
   // ── Icons ───────────────────────────────────────────────────
   const I = {
-    users:  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`,
+    users:   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`,
     building:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><rect x="4" y="3" width="16" height="18" rx="1.5"/><path d="M9 21V12h6v9"/><path d="M9 7h2M13 7h2M9 10h2M13 10h2"/></svg>`,
-    pulse:  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>`,
+    pulse:   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>`,
     fileText:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>`,
-    search: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><circle cx="11" cy="11" r="7"/><path d="m20 20-4.3-4.3"/></svg>`,
-    plus:   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M12 5v14M5 12h14"/></svg>`,
-    eye:    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`,
-    edit:   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><path d="M11 4H4v16h16v-7"/><path d="M18.5 2.5a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5Z"/></svg>`,
-    lock:   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>`,
-    trash:  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>`,
-    globe:  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>`,
-    zap:    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`,
-    check:  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><polyline points="20 6 9 17 4 12"/></svg>`,
+    search:  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><circle cx="11" cy="11" r="7"/><path d="m20 20-4.3-4.3"/></svg>`,
+    plus:    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M12 5v14M5 12h14"/></svg>`,
+    eye:     `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`,
+    edit:    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><path d="M11 4H4v16h16v-7"/><path d="M18.5 2.5a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5Z"/></svg>`,
+    lock:    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>`,
+    trash:   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>`,
+    globe:   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>`,
+    check:   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><polyline points="20 6 9 17 4 12"/></svg>`,
     download:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`,
-    x:      `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
-    bell:   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 7 3 9H3c0-2 3-2 3-9Z"/><path d="M10 21a2 2 0 0 0 4 0"/></svg>`,
+    x:       `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
+    bell:    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 7 3 9H3c0-2 3-2 3-9Z"/><path d="M10 21a2 2 0 0 0 4 0"/></svg>`,
     searchSm:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><circle cx="11" cy="11" r="7"/><path d="m20 20-4.3-4.3"/></svg>`,
   };
 
   // ── Types ───────────────────────────────────────────────────
   interface User {
-    username: string; name: string; email: string;
-    dept: string; role: string; status: string;
+    username: string;
+    name: string;
+    email: string;
+    dept: string;
+    role: string;
+    status: string;
   }
   interface Tenant {
-    id?: number; name: string; slug: string; domain: string;
-    primary_color: string; logo_url?: string; user_count: number;
-    plan_nextcloud_gb?: number; plan_email_gb?: number;
-    created_at?: string; status?: string;
+    id?: number;
+    name: string;
+    slug: string;
+    domain: string;
+    primary_color: string;
+    logo_url?: string;
+    user_count: number;
+    plan_nextcloud_gb?: number;
+    plan_email_gb?: number;
+    created_at?: string;
+    status?: string;
   }
   interface VM {
-    name: string; role?: string; ip: string;
-    status: string; cpu: number; ram: number; net?: number;
+    name: string;
+    role?: string;
+    ip: string;
+    status: string;
+    cpu: number;
+    ram: number;
+    net?: number;
   }
   interface AuditLog {
-    time: string; date?: string; actor: string;
-    action: string; target: string; type: string;
+    time: string;
+    date?: string;
+    actor: string;
+    action: string;
+    target: string;
+    type: string;
   }
 
   // ── State ───────────────────────────────────────────────────
-  let activeTab   = $state('users');
-  let loading     = $state(true);
-  let users       = $state<User[]>([]);
-  let tenants     = $state<Tenant[]>([]);
-  let services    = $state<VM[]>([]);
-  let auditLogs   = $state<AuditLog[]>([]);
-  let searchUser  = $state('');
-  let searchAudit = $state('');
+  let activeTab     = $state('users');
+  let loading       = $state(true);
+  let submitting    = $state(false);
+  let users         = $state<User[]>([]);
+  let tenants       = $state<Tenant[]>([]);
+  let services      = $state<VM[]>([]);
+  let auditLogs     = $state<AuditLog[]>([]);
+  let searchUser    = $state('');
+  let searchAudit   = $state('');
   let showAddUser   = $state(false);
   let showAddTenant = $state(false);
   let confirmDelete = $state<Tenant | null>(null);
+  let impersonating       = $state(false);
+  let impersonateTarget   = $state('');
 
-  // Add user form
-  let newUser = $state({ username:'', fullname:'', email:'', dept:'', role:'Staff', password:'' });
-  let newTenant = $state({ 
-    name:'', slug:'', primaryColor:'#3B82F6', logoUrl:'',
-    planNextcloudGb:50, planEmailGb:50, planOdooGb:50,
-    useCustomDomain:false, domain:'',
-    adminName:'', adminPassword:''
+  // ── Forms ───────────────────────────────────────────────────
+  let newUser = $state({
+    username: '', fullname: '', email: '', dept: '', role: 'Staff', password: ''
   });
-  
-  // Auto-generate slug dari nama
-  function generateSlug(name: string): string {
-    return name.toLowerCase()
-      .replace(/[^a-z0-9\s-]/g, '')
-      .replace(/\s+/g, '-')
-      .replace(/-+/g, '-')
-      .trim();
-  }
-  
-  let tenantAdminEmail = $derived(
-    newTenant.useCustomDomain && newTenant.domain 
-      ? 'admin@' + newTenant.domain
-      : newTenant.slug 
-        ? 'admin@' + newTenant.slug + '.opsid.web.id'
-        : 'admin@yourorg.opsid.web.id'
-  );
-  
-  let tenantSubdomain = $derived(
-    newTenant.useCustomDomain && newTenant.domain
-      ? newTenant.domain
-      : (newTenant.slug || 'yourorg') + '.opsid.web.id'
-  );
-  let submitting = $state(false);
+  let newTenant = $state({
+    name: '', slug: '', primaryColor: '#3B82F6', logoUrl: '',
+    planNextcloudGb: 50, planEmailGb: 50, planOdooGb: 50,
+    useCustomDomain: false, domain: '',
+    adminName: '', adminPassword: ''
+  });
 
   // ── Derived ─────────────────────────────────────────────────
   let filteredUsers = $derived(
@@ -108,14 +108,26 @@
       : auditLogs
   );
 
-  // ── Tabs config ─────────────────────────────────────────────
-  // Superadmin sees all, Tenant Admin sees users + tenants only
+  let tenantAdminEmail = $derived(
+    newTenant.useCustomDomain && newTenant.domain
+      ? 'admin@' + newTenant.domain
+      : newTenant.slug
+        ? 'admin@' + newTenant.slug + '.opsid.web.id'
+        : 'admin@yourorg.opsid.web.id'
+  );
+
+  let tenantSubdomain = $derived(
+    newTenant.useCustomDomain && newTenant.domain
+      ? newTenant.domain
+      : (newTenant.slug || 'yourorg') + '.opsid.web.id'
+  );
+
   let tabs = $derived((() => {
     const all = [
-      { id:'users',   label:'User Management',  icon: I.users },
-      { id:'tenants', label:'Tenant Management', icon: I.building },
-      { id:'health',  label:'Service Health',    icon: I.pulse },
-      { id:'audit',   label:'Audit Log',         icon: I.fileText },
+      { id: 'users',   label: 'User Management',  icon: I.users },
+      { id: 'tenants', label: 'Tenant Management', icon: I.building },
+      { id: 'health',  label: 'Service Health',    icon: I.pulse },
+      { id: 'audit',   label: 'Audit Log',         icon: I.fileText },
     ];
     if (auth.profile.isAdmin) return all;
     if (auth.profile.isTenantAdmin) return all.slice(0, 2);
@@ -123,35 +135,51 @@
   })());
 
   // ── Helpers ─────────────────────────────────────────────────
-  function roleColor(r: string) {
-    if (r === 'Superadmin' || r === 'opsid-admin') return { color:'#A78BFA', bg:'rgba(167,139,250,.1)', bd:'rgba(167,139,250,.25)' };
-    if (r === 'Admin' || r === 'org-admin') return { color:'#60A5FA', bg:'rgba(96,165,250,.1)', bd:'rgba(96,165,250,.25)' };
-    if (r === 'Manager') return { color:'#FBBF24', bg:'rgba(251,191,36,.1)', bd:'rgba(251,191,36,.25)' };
-    if (r === 'Operator') return { color:'#34D399', bg:'rgba(52,211,153,.1)', bd:'rgba(52,211,153,.25)' };
-    return { color:'var(--fg-2)', bg:'var(--bg-2)', bd:'var(--bd-2)' };
+  function generateSlug(name: string): string {
+    return name.toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, '')
+      .replace(/\s+/g, '-')
+      .replace(/-+/g, '-')
+      .trim();
   }
-  function metricColor(v: number) { return v > 80 ? 'var(--danger)' : v > 60 ? 'var(--warn)' : 'var(--ok)'; }
+
+  function roleColor(r: string) {
+    if (r === 'Superadmin' || r === 'opsid-admin') return { color: '#A78BFA', bg: 'rgba(167,139,250,.1)', bd: 'rgba(167,139,250,.25)' };
+    if (r === 'Admin' || r === 'org-admin') return { color: '#60A5FA', bg: 'rgba(96,165,250,.1)', bd: 'rgba(96,165,250,.25)' };
+    if (r === 'Manager') return { color: '#FBBF24', bg: 'rgba(251,191,36,.1)', bd: 'rgba(251,191,36,.25)' };
+    if (r === 'Operator') return { color: '#34D399', bg: 'rgba(52,211,153,.1)', bd: 'rgba(52,211,153,.25)' };
+    return { color: 'var(--fg-2)', bg: 'var(--bg-2)', bd: 'var(--bd-2)' };
+  }
+
+  function metricColor(v: number) {
+    return v > 80 ? 'var(--danger)' : v > 60 ? 'var(--warn)' : 'var(--ok)';
+  }
+
   function actionColor(a: string) {
     if (a.includes('DELETE')) return 'tag-danger';
     if (a.includes('IMPERSON') || a.includes('RESTART') || a.includes('WARN')) return 'tag-warn';
     if (a.includes('CREATE')) return 'tag-ok';
     return 'tag-pri';
   }
+
   function initials(name: string) {
     return name.split(' ').slice(0, 2).map(w => w[0]).join('').toUpperCase() || '??';
   }
+
   function greeting() {
     const h = new Date().getHours();
     return h < 12 ? 'Selamat pagi' : h < 15 ? 'Selamat siang' : h < 18 ? 'Selamat sore' : 'Selamat malam';
   }
 
-  // ── API calls ───────────────────────────────────────────────
+  // ── API Calls ────────────────────────────────────────────────
   async function fetchUsers() {
     try {
       const res = await fetch('/api/users');
       const data = await res.json();
       if (data.success && data.users) users = data.users;
-    } catch (e) { console.error('Failed to fetch users:', e); }
+    } catch (e) {
+      console.error('Failed to fetch users:', e);
+    }
   }
 
   async function fetchTenants() {
@@ -159,7 +187,9 @@
       const res = await fetch('/api/admin/tenant');
       const data = await res.json();
       if (data.ok && data.tenants) tenants = data.tenants;
-    } catch (e) { console.error('Failed to fetch tenants:', e); }
+    } catch (e) {
+      console.error('Failed to fetch tenants:', e);
+    }
   }
 
   async function fetchHealth() {
@@ -168,21 +198,19 @@
       const data = await res.json();
       if (Array.isArray(data)) services = data;
       else if (data.services) services = data.services;
-    } catch (e) {
-      // Endpoint belum ada — gunakan fallback
-      console.warn('Health endpoint not available, using fallback data');
+    } catch {
       services = [
-        { name:'Nginx',      ip:'10.34.1.1',  status:'up', cpu:8,  ram:23, net:12 },
-        { name:'Portal',     ip:'10.34.1.2',  status:'up', cpu:14, ram:31, net:8 },
-        { name:'FreeIPA',    ip:'10.34.1.3',  status:'up', cpu:15, ram:45, net:5 },
-        { name:'Keycloak',   ip:'10.34.1.4',  status:'up', cpu:22, ram:58, net:14 },
-        { name:'FreeRADIUS', ip:'10.34.1.5',  status:'up', cpu:5,  ram:18, net:2 },
-        { name:'SOGo Mail',  ip:'10.34.1.6',  status:'up', cpu:18, ram:42, net:22 },
-        { name:'Nextcloud',  ip:'10.34.1.7',  status:'up', cpu:35, ram:62, net:45 },
-        { name:'Odoo ERP',   ip:'10.34.1.8',  status:'up', cpu:28, ram:55, net:18 },
-        { name:'PostgreSQL', ip:'10.34.1.9',  status:'up', cpu:20, ram:48, net:30 },
-        { name:'PG Standby', ip:'10.34.1.10', status:'up', cpu:8,  ram:35, net:15 },
-        { name:'Monitoring', ip:'10.34.1.11', status:'up', cpu:12, ram:40, net:10 },
+        { name: 'Nginx',      ip: '10.34.1.1',  status: 'up', cpu: 8,  ram: 23, net: 12 },
+        { name: 'Portal',     ip: '10.34.1.2',  status: 'up', cpu: 14, ram: 31, net: 8  },
+        { name: 'FreeIPA',    ip: '10.34.1.3',  status: 'up', cpu: 15, ram: 45, net: 5  },
+        { name: 'Keycloak',   ip: '10.34.1.4',  status: 'up', cpu: 22, ram: 58, net: 14 },
+        { name: 'FreeRADIUS', ip: '10.34.1.5',  status: 'up', cpu: 5,  ram: 18, net: 2  },
+        { name: 'SOGo Mail',  ip: '10.34.1.6',  status: 'up', cpu: 18, ram: 42, net: 22 },
+        { name: 'Nextcloud',  ip: '10.34.1.7',  status: 'up', cpu: 35, ram: 62, net: 45 },
+        { name: 'Odoo ERP',   ip: '10.34.1.8',  status: 'up', cpu: 28, ram: 55, net: 18 },
+        { name: 'PostgreSQL', ip: '10.34.1.9',  status: 'up', cpu: 20, ram: 48, net: 30 },
+        { name: 'PG Standby', ip: '10.34.1.10', status: 'up', cpu: 8,  ram: 35, net: 15 },
+        { name: 'Monitoring', ip: '10.34.1.11', status: 'up', cpu: 12, ram: 40, net: 10 },
       ];
     }
   }
@@ -193,18 +221,16 @@
       const data = await res.json();
       if (Array.isArray(data)) auditLogs = data;
       else if (data.logs) auditLogs = data.logs;
-    } catch (e) {
-      // Endpoint belum ada — gunakan fallback
-      console.warn('Audit endpoint not available, using fallback data');
+    } catch {
       auditLogs = [
-        { time:'21:30:15', date:'27 Mei', actor:'jasmiandre',  action:'LOGIN',         target:'portal',         type:'info' },
-        { time:'21:28:03', date:'27 Mei', actor:'jasmiandre',  action:'IMPERSONATE',   target:'testuser',       type:'warn' },
-        { time:'21:15:44', date:'27 Mei', actor:'rahmaputri',  action:'CREATE_USER',   target:'miraanggraeni',  type:'info' },
-        { time:'20:55:12', date:'27 Mei', actor:'jasmiandre',  action:'UPDATE_TENANT', target:'manjapoles',     type:'info' },
-        { time:'20:42:08', date:'27 Mei', actor:'bagasadi',    action:'RESTART_SVC',   target:'collab-01',      type:'warn' },
-        { time:'20:30:00', date:'27 Mei', actor:'System',      action:'SSL_RENEWED',   target:'*.opsid.web.id', type:'info' },
-        { time:'19:15:33', date:'27 Mei', actor:'jasmiandre',  action:'DELETE_USER',   target:'tempuser',       type:'danger' },
-        { time:'18:44:21', date:'27 Mei', actor:'dewikartika', action:'LOGIN',          target:'portal',         type:'info' },
+        { time: '21:30:15', date: '27 Mei', actor: 'jasmiandre',  action: 'LOGIN',         target: 'portal',         type: 'info'   },
+        { time: '21:28:03', date: '27 Mei', actor: 'jasmiandre',  action: 'IMPERSONATE',   target: 'testuser',       type: 'warn'   },
+        { time: '21:15:44', date: '27 Mei', actor: 'rahmaputri',  action: 'CREATE_USER',   target: 'miraanggraeni',  type: 'info'   },
+        { time: '20:55:12', date: '27 Mei', actor: 'jasmiandre',  action: 'UPDATE_TENANT', target: 'manjapoles',     type: 'info'   },
+        { time: '20:42:08', date: '27 Mei', actor: 'bagasadi',    action: 'RESTART_SVC',   target: 'collab-01',      type: 'warn'   },
+        { time: '20:30:00', date: '27 Mei', actor: 'System',      action: 'SSL_RENEWED',   target: '*.opsid.web.id', type: 'info'   },
+        { time: '19:15:33', date: '27 Mei', actor: 'jasmiandre',  action: 'DELETE_USER',   target: 'tempuser',       type: 'danger' },
+        { time: '18:44:21', date: '27 Mei', actor: 'dewikartika', action: 'LOGIN',          target: 'portal',         type: 'info'   },
       ];
     }
   }
@@ -221,10 +247,12 @@
       const data = await res.json();
       if (data.success) {
         showAddUser = false;
-        newUser = { username:'', fullname:'', email:'', dept:'', role:'Staff', password:'' };
+        newUser = { username: '', fullname: '', email: '', dept: '', role: 'Staff', password: '' };
         await fetchUsers();
       }
-    } catch (e) { console.error('Create user failed:', e); }
+    } catch (e) {
+      console.error('Create user failed:', e);
+    }
     submitting = false;
   }
 
@@ -245,54 +273,79 @@
       const data = await res.json();
       if (data.ok) {
         showAddTenant = false;
-        newTenant = { name:'', slug:'', primaryColor:'#3B82F6', logoUrl:'', planNextcloudGb:50, planEmailGb:50, planOdooGb:50, useCustomDomain:false, domain:'', adminName:'', adminPassword:'' };
+        newTenant = {
+          name: '', slug: '', primaryColor: '#3B82F6', logoUrl: '',
+          planNextcloudGb: 50, planEmailGb: 50, planOdooGb: 50,
+          useCustomDomain: false, domain: '', adminName: '', adminPassword: ''
+        };
         await fetchTenants();
       }
-    } catch (e) { console.error('Create tenant failed:', e); }
+    } catch (e) {
+      console.error('Create tenant failed:', e);
+    }
     submitting = false;
   }
 
-  // ── Mount ───────────────────────────────────────────────────
-  onMount(async () => {
-    await Promise.allSettled([
-      fetchUsers(),
-      fetchTenants(),
-      fetchHealth(),
-      fetchAuditLogs(),
-    ]);
-    loading = false;
-  });
-  let impersonating = $state(false);
-  let impersonateTarget = $state('');
+  async function deleteTenant(tenant: Tenant) {
+    if (!tenant.id) return;
+    submitting = true;
+    try {
+      const res = await fetch('/api/admin/tenant/' + tenant.id, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.ok) {
+        confirmDelete = null;
+        await fetchTenants();
+      } else {
+        alert('Gagal menghapus: ' + (data.error ?? 'Unknown error'));
+      }
+    } catch (e) {
+      alert('Koneksi gagal: ' + String(e));
+    }
+    submitting = false;
+  }
+
+  async function checkDns(tenant: Tenant) {
+    if (!tenant.id) return;
+    try {
+      const res = await fetch('/api/admin/tenant/' + tenant.id + '/dns');
+      const data = await res.json();
+      if (data.pointing) {
+        alert('DNS OK\n' + data.domain + ' -> ' + data.resolved_ip);
+      } else {
+        alert('DNS belum diarahkan.\n' + data.domain + ' -> ' + (data.resolved_ip ?? 'tidak ditemukan') + '\nTarget: ' + data.target_ip);
+      }
+    } catch {
+      alert('Cek DNS gagal');
+    }
+  }
 
   async function doImpersonate(username: string, name: string) {
     try {
-    // Buka Keycloak admin impersonate di tab baru
-    // Keycloak akan handle session switch via browser cookie
-    const kcAdminUrl = `https://auth.opsid.web.id/admin/master/console/#/opsid-internal/users`;
-    
-    // Catat audit log
-    await fetch('/api/admin/impersonate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username })
-    });
-
-    impersonating = true;
-    impersonateTarget = name;
-    
-    // Redirect portal ke dashboard dengan banner impersonate
-    // User perlu login ulang sebagai target user
-    alert('Untuk impersonate ' + name + ':\n1. Buka Keycloak Admin\n2. Users → ' + username + ' → Impersonate');
-    window.open(kcAdminUrl, '_blank');
-  } catch {
-    alert('Koneksi gagal');
+      const kcAdminUrl = 'https://auth.opsid.web.id/admin/master/console/#/opsid-internal/users';
+      await fetch('/api/admin/impersonate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username }),
+      });
+      impersonating = true;
+      impersonateTarget = name;
+      alert('Untuk impersonate ' + name + ':\n1. Buka Keycloak Admin\n2. Users -> ' + username + ' -> Impersonate');
+      window.open(kcAdminUrl, '_blank');
+    } catch {
+      alert('Koneksi gagal');
+    }
   }
 
   function stopImpersonate() {
     impersonating = false;
     impersonateTarget = '';
   }
+
+  // ── Mount ───────────────────────────────────────────────────
+  onMount(async () => {
+    await Promise.allSettled([fetchUsers(), fetchTenants(), fetchHealth(), fetchAuditLogs()]);
+    loading = false;
+  });
 </script>
 
 <div class="main-scroll">
@@ -324,14 +377,10 @@
   </header>
 
   <div class="main-pad">
-    <!-- Tab bar — inside content area -->
+    <!-- Tab bar -->
     <div class="tab-bar">
       {#each tabs as t (t.id)}
-        <button
-          class="tab-btn"
-          class:active={activeTab === t.id}
-          onclick={() => activeTab = t.id}
-        >
+        <button class="tab-btn" class:active={activeTab === t.id} onclick={() => activeTab = t.id}>
           {@html t.icon} {t.label}
         </button>
       {/each}
@@ -415,7 +464,6 @@
         {/if}
       </div>
 
-      <!-- Add User Modal -->
       {#if showAddUser}
         <div class="modal-overlay" onclick={() => showAddUser = false}>
           <div class="modal" onclick={(e) => e.stopPropagation()}>
@@ -429,8 +477,11 @@
                 <div class="field"><label for="u-name">Nama Lengkap</label><input id="u-name" placeholder="John Doe" bind:value={newUser.fullname} /></div>
                 <div class="field"><label for="u-email">Email</label><input id="u-email" placeholder="john@opsid.web.id" bind:value={newUser.email} /></div>
                 <div class="field"><label for="u-dept">Departemen</label><input id="u-dept" placeholder="Engineering" bind:value={newUser.dept} /></div>
-                <div class="field"><label for="u-role">Role</label>
-                  <select id="u-role" bind:value={newUser.role}><option>Staff</option><option>Operator</option><option>Manager</option><option>Admin</option></select>
+                <div class="field">
+                  <label for="u-role">Role</label>
+                  <select id="u-role" bind:value={newUser.role}>
+                    <option>Staff</option><option>Operator</option><option>Manager</option><option>Admin</option>
+                  </select>
                 </div>
                 <div class="field"><label for="u-pass">Password</label><input id="u-pass" type="password" placeholder="Min 8 karakter" bind:value={newUser.password} /></div>
               </div>
@@ -468,7 +519,7 @@
               <div class="tenant-inner">
                 <div class="tenant-header">
                   <div style="display:flex;align-items:center;gap:12px">
-                    <div class="tenant-mark" style="background:linear-gradient(135deg,{t.primary_color},color-mix(in srgb,{t.primary_color},#000 30%))">
+                    <div class="tenant-mark" style="background:linear-gradient(135deg,{t.primary_color},{t.primary_color})">
                       {t.name[0]}
                     </div>
                     <div>
@@ -484,7 +535,7 @@
                   <div><div class="ts-label">Slug</div><div class="ts-val mono">{t.slug}</div></div>
                 </div>
                 <div class="tenant-actions">
-                  <button class="btn btn-secondary btn-sm">{@html I.globe} Cek DNS</button>
+                  <button class="btn btn-secondary btn-sm" onclick={() => checkDns(t)}>{@html I.globe} Cek DNS</button>
                   <button class="btn btn-secondary btn-sm">{@html I.users} Kelola User</button>
                   <button class="btn btn-danger btn-sm" style="margin-left:auto" onclick={() => confirmDelete = t}>
                     {@html I.trash} Hapus
@@ -496,7 +547,6 @@
         </div>
       {/if}
 
-      <!-- Add Tenant Modal -->
       {#if showAddTenant}
         <div class="modal-overlay" onclick={() => showAddTenant = false}>
           <div class="modal" onclick={(e) => e.stopPropagation()}>
@@ -508,16 +558,22 @@
               <div class="form-grid">
                 <div class="field" style="grid-column:span 2">
                   <label for="t-name">Nama Organisasi</label>
-                  <input id="t-name" placeholder="PT Contoh Indonesia" bind:value={newTenant.name} 
-                    oninput={() => { if(!newTenant.slug) newTenant.slug = generateSlug(newTenant.name); }} />
+                  <input id="t-name" placeholder="PT Contoh Indonesia" bind:value={newTenant.name}
+                    oninput={() => { if (!newTenant.slug) newTenant.slug = generateSlug(newTenant.name); }} />
                 </div>
                 <div class="field">
                   <label for="t-slug">Slug (opsional)</label>
                   <input id="t-slug" placeholder="auto dari nama" bind:value={newTenant.slug} />
                   <span style="font-size:11px;color:var(--fg-4);margin-top:4px;display:block">Preview: {tenantSubdomain}</span>
                 </div>
-                <div class="field"><label for="t-color">Warna Utama</label><input id="t-color" type="color" bind:value={newTenant.primaryColor} style="height:40px" /></div>
-                <div class="field"><label for="t-logo">Logo URL</label><input id="t-logo" placeholder="https://..." bind:value={newTenant.logoUrl} /></div>
+                <div class="field">
+                  <label for="t-color">Warna Utama</label>
+                  <input id="t-color" type="color" bind:value={newTenant.primaryColor} style="height:40px" />
+                </div>
+                <div class="field">
+                  <label for="t-logo">Logo URL</label>
+                  <input id="t-logo" placeholder="https://..." bind:value={newTenant.logoUrl} />
+                </div>
                 <div class="field">
                   <label for="t-nc">Quota Nextcloud (GB)</label>
                   <input id="t-nc" type="number" min="1" bind:value={newTenant.planNextcloudGb} />
@@ -537,10 +593,10 @@
                   </label>
                 </div>
                 {#if newTenant.useCustomDomain}
-                <div class="field" style="grid-column:span 3">
-                  <label for="t-domain">Domain Custom</label>
-                  <input id="t-domain" placeholder="workspace.perusahaan.co.id" bind:value={newTenant.domain} />
-                </div>
+                  <div class="field" style="grid-column:span 3">
+                    <label for="t-domain">Domain Custom</label>
+                    <input id="t-domain" placeholder="workspace.perusahaan.co.id" bind:value={newTenant.domain} />
+                  </div>
                 {/if}
                 <div class="field" style="grid-column:span 3;padding:12px;background:var(--bg-2);border-radius:8px;border:1px solid var(--bd-1)">
                   <span style="font-size:11px;color:var(--fg-4)">Email admin yang akan dibuat:</span>
@@ -555,7 +611,7 @@
                   <input id="t-apass" type="password" placeholder="Min 8 karakter" bind:value={newTenant.adminPassword} />
                 </div>
               </div>
-              <p class="field-hint" style="margin-top:14px">* Sistem otomatis buat Nginx config + Keycloak Organization + FreeIPA group + user admin dalam &lt;30 detik.</p>
+              <p class="field-hint" style="margin-top:14px">Sistem otomatis buat Nginx config + Keycloak Organization + FreeIPA group + user admin.</p>
             </div>
             <div class="modal-foot">
               <button class="btn btn-secondary" onclick={() => showAddTenant = false}>Batal</button>
@@ -567,7 +623,6 @@
         </div>
       {/if}
 
-      <!-- Delete Confirm -->
       {#if confirmDelete}
         <div class="modal-overlay" onclick={() => confirmDelete = null}>
           <div class="modal" style="width:420px" onclick={(e) => e.stopPropagation()}>
@@ -583,7 +638,9 @@
             </div>
             <div class="modal-foot">
               <button class="btn btn-secondary" onclick={() => confirmDelete = null}>Batal</button>
-              <button class="btn btn-danger" onclick={() => confirmDelete = null}>Hapus Permanen</button>
+              <button class="btn btn-danger" disabled={submitting} onclick={() => confirmDelete && deleteTenant(confirmDelete)}>
+                {submitting ? 'Menghapus...' : 'Hapus Permanen'}
+              </button>
             </div>
           </div>
         </div>
@@ -616,7 +673,7 @@
                 </div>
                 <code class="health-ip mono">{s.ip}</code>
               </div>
-              {#each [{l:'CPU',v:s.cpu},{l:'RAM',v:s.ram},{l:'NET',v:s.net??0}] as m}
+              {#each [{l:'CPU',v:s.cpu},{l:'RAM',v:s.ram},{l:'NET',v:s.net ?? 0}] as m}
                 <div class="metric-row">
                   <span class="metric-label mono">{m.l}</span>
                   <div class="metric-bar">
@@ -655,10 +712,12 @@
         {:else}
           <table class="data-table">
             <thead>
-              <tr><th>Waktu</th><th>Aktor</th><th>Aksi</th><th>Target</th><th>Tipe</th></tr>
+              <tr>
+                <th>Waktu</th><th>Aktor</th><th>Aksi</th><th>Target</th><th>Tipe</th>
+              </tr>
             </thead>
             <tbody>
-              {#each filteredLogs as l, i}
+              {#each filteredLogs as l}
                 <tr>
                   <td>
                     <div class="mono" style="font-size:12px">{l.time}</div>
@@ -671,7 +730,7 @@
                     </div>
                   </td>
                   <td>
-                    <span class="tag {actionColor(l.action)}" style="font-size:10px;font-family:var(--mono,monospace);letter-spacing:.03em">
+                    <span class="tag {actionColor(l.action)}" style="font-size:10px;font-family:monospace;letter-spacing:.03em">
                       {l.action}
                     </span>
                   </td>
@@ -781,9 +840,17 @@
   .btn-danger { background:rgba(248,113,113,.1); color:var(--danger); border-color:color-mix(in srgb, var(--danger) 25%, transparent); }
   .btn-danger:hover { background:rgba(248,113,113,.18); }
 
+  /* ── Form ────────────────────────────────────────────────── */
+  .form-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; }
+  .field { display:flex; flex-direction:column; gap:6px; }
+  .field label { font-size:11px; font-weight:600; color:var(--fg-3); letter-spacing:.04em; }
+  .field input, .field select { background:var(--bg-2); border:1px solid var(--bd-2); border-radius:var(--r-md); padding:8px 12px; font-size:13px; color:var(--fg-1); font-family:inherit; outline:none; transition:border-color .15s; }
+  .field input:focus, .field select:focus { border-color:var(--pri); }
+
   /* ── Empty state ─────────────────────────────────────────── */
   .empty-state { padding:48px 24px; text-align:center; color:var(--fg-3); font-size:13px; }
 
   /* ── Responsive ──────────────────────────────────────────── */
   @media(max-width:1100px) { .health-grid, .tenant-grid { grid-template-columns:1fr; } }
+  @media(max-width:700px) { .form-grid { grid-template-columns:1fr; } }
 </style>

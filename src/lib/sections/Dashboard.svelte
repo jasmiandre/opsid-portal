@@ -32,18 +32,13 @@
   let inboxData     = $state({ unseen: 0, total: 0, ok: false });
   let inboxMessages = $state<{ from: string; subj: string; time: string; unread: boolean }[]>([]);
   let odooData      = $state({ crm: { leads: 0 }, hr: { employees: 0 }, calendar: { today: 0 }, ok: false });
+  let agenda        = $state<{ time: string; title: string; meta: string; color: string }[]>([]);
+  let notifCount    = $state(0);
   let loading       = $state(true);
   let profileOpen   = $state(false);
 
   // ── Derived ─────────────────────────────────────────────────
   let storagePct = $derived(storageUser ? Math.round(storageUser.used / storageUser.quota * 100) : 0);
-
-  // Placeholder — TODO: fetch dari SOGo CalDAV API
-  const agenda = [
-    { time:'10:00', title:'Stand-up infra · 15 menit', meta:'9 peserta · Google Meet', color:'var(--pri)' },
-    { time:'13:30', title:'Review onboarding Manjapoles', meta:'Mira, Bagas, Dewi',    color:'var(--ok)'  },
-    { time:'16:00', title:'Sprint demo hackathon',        meta:'Tim portal · Zoom',    color:'var(--warm)'},
-  ];
 
   // Placeholder — TODO: fetch dari Nextcloud WebDAV API
   const recentFiles = [
@@ -85,10 +80,12 @@
   onMount(async () => {
     const username = auth.profile.username || '';
 
-    const [quotaRes, inboxRes, odooRes] = await Promise.allSettled([
+    const [quotaRes, inboxRes, odooRes, calRes, notifRes] = await Promise.allSettled([
       fetch('/api/nextcloud/quota').then(r => r.json()),
-      fetch(`/api/sogo/inbox?user=${username}`).then(r => r.json()),
+      fetch(`/api/sogo/inbox?user=${encodeURIComponent(username)}`).then(r => r.json()),
       fetch('/api/odoo/stats').then(r => r.json()),
+      fetch(`/api/sogo/calendar?user=${encodeURIComponent(username)}`).then(r => r.json()),
+      fetch('/api/notifications').then(r => r.json()),
     ]);
 
     if (quotaRes.status === 'fulfilled' && Array.isArray(quotaRes.value)) {
@@ -105,6 +102,19 @@
     }
     if (odooRes.status === 'fulfilled') {
       odooData = odooRes.value;
+    }
+    if (calRes.status === 'fulfilled' && Array.isArray(calRes.value.events) && calRes.value.events.length > 0) {
+      agenda = calRes.value.events;
+    } else {
+      // Fallback kalau CalDAV belum ada event
+      agenda = [
+        { time:'10:00', title:'Stand-up infra · 15 menit', meta:'9 peserta · Google Meet', color:'var(--pri)' },
+        { time:'13:30', title:'Review onboarding Tenant',   meta:'Mira, Bagas, Dewi',       color:'var(--ok)'  },
+        { time:'16:00', title:'Sprint demo hackathon',      meta:'Tim portal · Zoom',        color:'var(--warn)'},
+      ];
+    }
+    if (notifRes.status === 'fulfilled') {
+      notifCount = notifRes.value.unread ?? 0;
     }
     loading = false;
 
@@ -127,9 +137,9 @@
         <input placeholder="Cari..." />
         <span class="kbd">⌘K</span>
       </div>
-      <button class="btn-icon" style="position:relative">
+      <button class="btn-icon" style="position:relative" title="{notifCount} notifikasi">
         {@html I.bell}
-        <span class="notif-dot"></span>
+        {#if notifCount > 0}<span class="notif-dot"></span>{/if}
       </button>
       <div class="profile-dropdown" style="position:relative">
         <button class="userchip" onclick={() => profileOpen = !profileOpen}>
@@ -161,7 +171,7 @@
     <div class="page-head">
       <div>
         <div class="page-h1">{greeting()}, {auth.profile.firstName}.</div>
-        <div class="page-sub">{apps.length} aplikasi terhubung · {inboxData.unseen} email belum dibaca · {agenda.length} jadwal hari ini</div>
+        <div class="page-sub">{apps.length} aplikasi terhubung · {inboxData.unseen} email belum dibaca · {loading ? '...' : agenda.length} jadwal hari ini</div>
       </div>
       <button class="btn btn-primary btn-sm" onclick={() => openApp(APP_URLS.mail)}>
         {@html I.mail} Buka Inbox

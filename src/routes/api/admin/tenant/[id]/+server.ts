@@ -1,0 +1,85 @@
+import { json } from '@sveltejs/kit';
+import type { RequestHandler } from './$types';
+import db from '$lib/db';
+
+const NGINX_API  = 'http://10.34.1.1:8080';
+const KC_BASE    = 'https://auth.opsid.web.id';
+const IPA_BASE   = 'https://ipa.opsid.web.id/ipa/session/json';
+
+async function getKcToken(): Promise<string> {
+  const res = await fetch(`${KC_BASE}/realms/master/protocol/openid-connect/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'client_id=admin-cli&grant_type=password&username=opsid-admin&password=sandiaman2026',
+  });
+  const d = await res.json();
+  return d.access_token;
+}
+
+export const GET: RequestHandler = async ({ params }) => {
+  try {
+    const result = await db.query(
+      `SELECT t.*, COUNT(tu.id) as user_count
+       FROM tenants t
+       LEFT JOIN tenant_users tu ON t.id = tu.tenant_id
+       WHERE t.id = $1
+       GROUP BY t.id`,
+      [params.id]
+    );
+    if (!result.rows.length) return json({ error: 'Tenant tidak ditemukan' }, { status: 404 });
+    return json({ ok: true, tenant: result.rows[0] });
+  } catch (e) {
+    return json({ error: String(e) }, { status: 500 });
+  }
+};
+
+export const DELETE: RequestHandler = async ({ params }) => {
+  try {
+    const result = await db.query(`SELECT * FROM tenants WHERE id = $1`, [params.id]);
+    if (!result.rows.length) return json({ error: 'Tenant tidak ditemukan' }, { status: 404 });
+
+    const tenant = result.rows[0];
+
+    // 1. Hapus dari Nginx
+    await fetch(`${NGINX_API}/site/${encodeURIComponent(tenant.domain)}`, {
+      method: 'DELETE',
+    }).catch(() => null);
+
+    // 2. Hapus Keycloak Organization
+    try {
+      const token = await getKcToken();
+      const orgsRes = await fetch(
+        `${KC_BASE}/admin/realms/opsid-internal/organizations?search=${encodeURIComponent(tenant.slug)}`,
+        { headers: { 'Authorization': `Bearer ${token}` } }
+      );
+      const orgs = await orgsRes.json();
+      if (Array.isArray(orgs) && orgs.length > 0) {
+        await fetch(
+          `${KC_BASE}/admin/realms/opsid-internal/organizations/${orgs[0].id}`,
+          { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } }
+        );
+      }
+    } catch { /* lanjut walau gagal */ }
+
+    // 3. Hapus FreeIPA group
+    await fetch(IPA_BASE, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Referer': 'https://ipa.opsid.web.id/ipa' },
+      body: JSON.stringify({ method: 'group_del', params: [[`${tenant.slug}-users`], {}] }),
+    }).catch(() => null);
+
+    // 4. Hapus dari PostgreSQL
+    await db.query(`DELETE FROM tenant_users WHERE tenant_id = $1`, [params.id]);
+    await db.query(`DELETE FROM tenants WHERE id = $1`, [params.id]);
+
+    // 5. Audit log
+    await db.query(
+      `INSERT INTO audit_logs (actor, action, target, metadata) VALUES ($1, $2, $3, $4)`,
+      ['system', 'DELETE_TENANT', tenant.domain, JSON.stringify({ name: tenant.name, slug: tenant.slug })]
+    );
+
+    return json({ ok: true });
+  } catch (e) {
+    return json({ error: String(e) }, { status: 500 });
+  }
+};
