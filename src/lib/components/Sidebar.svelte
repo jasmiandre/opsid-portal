@@ -19,6 +19,7 @@
     settings: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg>`,
     logout:   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>`,
     arrowUR:  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="11" height="11"><path d="M7 17 17 7"/><path d="M8 7h9v9"/></svg>`,
+    x:        `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
   };
 
   const apps = [
@@ -27,8 +28,40 @@
     { key:'erp',   label:'Odoo ERP',  icon:'box',   tile:'erp',   url: APP_URLS.erp   },
   ] as const;
 
-  // Show Admin Console only for admins
   let showAdmin = $derived(auth.profile.isAdmin || auth.profile.isTenantAdmin);
+
+  // ── Settings modal ──────────────────────────────────────────
+  let showSettings = $state(false);
+  let settingsForm = $state({ newPassword: '', confirm: '' });
+  let settingsMsg  = $state('');
+  let settingsBusy = $state(false);
+
+  async function changePassword() {
+    if (settingsForm.newPassword !== settingsForm.confirm) {
+      settingsMsg = 'Password baru tidak cocok'; return;
+    }
+    if (settingsForm.newPassword.length < 8) {
+      settingsMsg = 'Password minimal 8 karakter'; return;
+    }
+    settingsBusy = true; settingsMsg = '';
+    try {
+      const res = await fetch('/api/admin/profile', {
+        method:  'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ username: auth.profile.username, newPassword: settingsForm.newPassword }),
+      });
+      const d = await res.json();
+      if (d.ok) {
+        settingsMsg  = 'Password berhasil diubah';
+        settingsForm = { newPassword: '', confirm: '' };
+      } else {
+        settingsMsg = 'Gagal: ' + (d.error ?? 'Unknown error');
+      }
+    } catch {
+      settingsMsg = 'Koneksi gagal';
+    }
+    settingsBusy = false;
+  }
 </script>
 
 <aside class="sidebar">
@@ -51,7 +84,7 @@
     </div>
 
     <div class="nav-group">
-      <div class="nav-label">Aplikasi</div>
+      <div class="nav-label">Aplikasi Eksternal</div>
       {#each apps as a (a.key)}
         <a class="nav-item" href={a.url} target="_blank" rel="noopener">
           <span class="tile tile-sm tile-{a.tile}" style="width:24px;height:24px;border-radius:6px">
@@ -73,7 +106,7 @@
           {@html I.shield} Admin Console
         </button>
       {/if}
-      <button class="nav-item">
+      <button class="nav-item" onclick={() => { showSettings = true; settingsMsg = ''; }}>
         {@html I.settings} Pengaturan
       </button>
       <button class="nav-item" onclick={() => auth.logout()} style="color:var(--danger)">
@@ -83,20 +116,57 @@
   </div>
 </aside>
 
+<!-- ── Modal: Pengaturan / Ganti Password ───────────────────── -->
+{#if showSettings}
+  <div class="modal-overlay" role="dialog" aria-modal="true" aria-label="Pengaturan Akun">
+    <div class="modal" onclick={(e) => e.stopPropagation()}>
+      <div class="modal-head">
+        <h3>Pengaturan Akun</h3>
+        <button class="btn-icon" onclick={() => showSettings = false} aria-label="Tutup">{@html I.x}</button>
+      </div>
+      <div class="modal-body">
+        <p class="settings-title">Ganti Password</p>
+        <div class="sfield">
+          <label for="sb-new">Password Baru</label>
+          <input id="sb-new" type="password" placeholder="Min 8 karakter" bind:value={settingsForm.newPassword} />
+        </div>
+        <div class="sfield">
+          <label for="sb-confirm">Konfirmasi Password</label>
+          <input id="sb-confirm" type="password" placeholder="Ulangi password baru" bind:value={settingsForm.confirm} />
+        </div>
+        {#if settingsMsg}
+          <p class="smsg" class:ok={settingsMsg.includes('berhasil')}>{settingsMsg}</p>
+        {/if}
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-secondary" onclick={() => { showSettings = false; settingsMsg = ''; }}>Batal</button>
+        <button class="btn btn-primary" onclick={changePassword} disabled={settingsBusy}>
+          {settingsBusy ? 'Menyimpan...' : 'Simpan Password'}
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
 <style>
   .sb-top { flex:1; overflow-y:auto; min-height:0; }
   .sb-top::-webkit-scrollbar { width:0; }
   .sb-bot { flex-shrink:0; }
-  .user-card {
-    display:flex; align-items:center; gap:10px;
-    padding:12px 10px; margin-top:8px;
-    border-top:1px solid var(--bd-1); border-radius:var(--r-md);
-    cursor:pointer; transition:background .15s;
-  }
-  .user-card:hover { background:var(--bg-2); }
-  .user-info { flex:1; min-width:0; }
-  .user-name { font-size:12px; font-weight:600; color:var(--fg-1); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .user-email { font-size:10px; color:var(--fg-4); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .ext { margin-left:auto; color:var(--fg-4); opacity:0; transition:opacity .12s; }
   .nav-item:hover .ext { opacity:1; }
+
+  /* ── Modal ───────────────────────────────────────────────── */
+  .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.6); backdrop-filter:blur(8px); z-index:300; display:grid; place-items:center; padding:24px; }
+  .modal { background:var(--bg-1); border:1px solid var(--bd-2); border-radius:18px; width:400px; max-width:100%; box-shadow:0 12px 40px -12px rgba(0,0,0,.7); }
+  .modal-head { padding:20px 24px; border-bottom:1px solid var(--bd-1); display:flex; align-items:center; justify-content:space-between; }
+  .modal-head h3 { font-size:16px; font-weight:600; margin:0; color:var(--fg-1); }
+  .modal-body { padding:20px 24px; display:flex; flex-direction:column; gap:14px; }
+  .modal-foot { padding:16px 24px; border-top:1px solid var(--bd-1); display:flex; justify-content:flex-end; gap:8px; }
+  .settings-title { font-size:12px; font-weight:700; color:var(--fg-3); text-transform:uppercase; letter-spacing:.06em; margin:0; }
+  .sfield { display:flex; flex-direction:column; gap:6px; }
+  .sfield label { font-size:11px; font-weight:600; color:var(--fg-3); }
+  .sfield input { background:var(--bg-2); border:1px solid var(--bd-2); border-radius:var(--r-md); padding:8px 12px; font-size:13px; color:var(--fg-1); font-family:inherit; outline:none; transition:border-color .15s; }
+  .sfield input:focus { border-color:var(--pri); }
+  .smsg { font-size:12px; color:var(--danger); margin:0; }
+  .smsg.ok { color:var(--ok); }
 </style>

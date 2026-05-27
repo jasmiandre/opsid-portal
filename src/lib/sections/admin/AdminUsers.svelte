@@ -51,6 +51,8 @@
     status: string;
     cpu: number;
     ram: number;
+    disk?: number;
+    load?: number;
     net?: number;
   }
   interface AuditLog {
@@ -88,6 +90,8 @@
     useCustomDomain: false, domain: '',
     adminName: '', adminPassword: ''
   });
+  // Track if user manually edited the slug so we stop auto-generating
+  let slugManuallyEdited = $state(false);
 
   // ── Derived ─────────────────────────────────────────────────
   let filteredUsers = $derived(
@@ -221,17 +225,9 @@
       const data = await res.json();
       if (Array.isArray(data)) auditLogs = data;
       else if (data.logs) auditLogs = data.logs;
+      else auditLogs = [];
     } catch {
-      auditLogs = [
-        { time: '21:30:15', date: '27 Mei', actor: 'jasmiandre',  action: 'LOGIN',         target: 'portal',         type: 'info'   },
-        { time: '21:28:03', date: '27 Mei', actor: 'jasmiandre',  action: 'IMPERSONATE',   target: 'testuser',       type: 'warn'   },
-        { time: '21:15:44', date: '27 Mei', actor: 'rahmaputri',  action: 'CREATE_USER',   target: 'miraanggraeni',  type: 'info'   },
-        { time: '20:55:12', date: '27 Mei', actor: 'jasmiandre',  action: 'UPDATE_TENANT', target: 'manjapoles',     type: 'info'   },
-        { time: '20:42:08', date: '27 Mei', actor: 'bagasadi',    action: 'RESTART_SVC',   target: 'collab-01',      type: 'warn'   },
-        { time: '20:30:00', date: '27 Mei', actor: 'System',      action: 'SSL_RENEWED',   target: '*.opsid.web.id', type: 'info'   },
-        { time: '19:15:33', date: '27 Mei', actor: 'jasmiandre',  action: 'DELETE_USER',   target: 'tempuser',       type: 'danger' },
-        { time: '18:44:21', date: '27 Mei', actor: 'dewikartika', action: 'LOGIN',          target: 'portal',         type: 'info'   },
-      ];
+      auditLogs = [];
     }
   }
 
@@ -505,7 +501,7 @@
           <h1 class="page-h1">Tenant Management</h1>
           <p class="page-sub">{tenants.length} tenant terdaftar · Multi-tenant white-label</p>
         </div>
-        <button class="btn btn-primary btn-sm" onclick={() => showAddTenant = true}>
+        <button class="btn btn-primary btn-sm" onclick={() => { showAddTenant = true; slugManuallyEdited = false; }}>
           {@html I.plus} Onboarding Tenant
         </button>
       </div>
@@ -555,54 +551,60 @@
               <button class="btn-icon" onclick={() => showAddTenant = false}>{@html I.x}</button>
             </div>
             <div class="modal-body">
-              <div class="form-grid">
+              <div class="form-grid-2">
                 <div class="field" style="grid-column:span 2">
                   <label for="t-name">Nama Organisasi</label>
                   <input id="t-name" placeholder="PT Contoh Indonesia" bind:value={newTenant.name}
-                    oninput={() => { if (!newTenant.slug) newTenant.slug = generateSlug(newTenant.name); }} />
+                    oninput={() => { if (!slugManuallyEdited) newTenant.slug = generateSlug(newTenant.name); }} />
                 </div>
                 <div class="field">
-                  <label for="t-slug">Slug (opsional)</label>
-                  <input id="t-slug" placeholder="auto dari nama" bind:value={newTenant.slug} />
-                  <span style="font-size:11px;color:var(--fg-4);margin-top:4px;display:block">Preview: {tenantSubdomain}</span>
+                  <label for="t-slug">Slug URL</label>
+                  <input id="t-slug" placeholder="auto dari nama" bind:value={newTenant.slug}
+                    oninput={() => { slugManuallyEdited = newTenant.slug.length > 0; }} />
+                  <span class="field-preview">&#8618; {tenantSubdomain}</span>
                 </div>
                 <div class="field">
-                  <label for="t-color">Warna Utama</label>
-                  <input id="t-color" type="color" bind:value={newTenant.primaryColor} style="height:40px" />
+                  <label for="t-color">Warna Brand</label>
+                  <input id="t-color" type="color" bind:value={newTenant.primaryColor} style="height:40px;padding:4px" />
                 </div>
-                <div class="field">
-                  <label for="t-logo">Logo URL</label>
-                  <input id="t-logo" placeholder="https://..." bind:value={newTenant.logoUrl} />
+                <div class="field" style="grid-column:span 2">
+                  <label for="t-logo">Logo URL (opsional)</label>
+                  <input id="t-logo" placeholder="https://cdn.contoh.co.id/logo.png" bind:value={newTenant.logoUrl} />
                 </div>
-                <div class="field">
-                  <label for="t-nc">Quota Nextcloud (GB)</label>
-                  <input id="t-nc" type="number" min="1" bind:value={newTenant.planNextcloudGb} />
+                <div class="field" style="grid-column:span 2">
+                  <label>Quota Penyimpanan</label>
+                  <div class="quota-row">
+                    <div class="field">
+                      <label for="t-nc" class="sublabel">Nextcloud (GB)</label>
+                      <input id="t-nc" type="number" min="1" bind:value={newTenant.planNextcloudGb} />
+                    </div>
+                    <div class="field">
+                      <label for="t-em" class="sublabel">Email (GB)</label>
+                      <input id="t-em" type="number" min="1" bind:value={newTenant.planEmailGb} />
+                    </div>
+                    <div class="field">
+                      <label for="t-od" class="sublabel">Odoo (GB)</label>
+                      <input id="t-od" type="number" min="1" bind:value={newTenant.planOdooGb} />
+                    </div>
+                  </div>
                 </div>
-                <div class="field">
-                  <label for="t-em">Quota Email (GB)</label>
-                  <input id="t-em" type="number" min="1" bind:value={newTenant.planEmailGb} />
-                </div>
-                <div class="field">
-                  <label for="t-od">Quota Odoo (GB)</label>
-                  <input id="t-od" type="number" min="1" bind:value={newTenant.planOdooGb} />
-                </div>
-                <div class="field" style="grid-column:span 3">
-                  <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+                <div class="field" style="grid-column:span 2">
+                  <label class="checkbox-label">
                     <input type="checkbox" bind:checked={newTenant.useCustomDomain} />
                     Organisasi punya domain sendiri
                   </label>
                 </div>
                 {#if newTenant.useCustomDomain}
-                  <div class="field" style="grid-column:span 3">
+                  <div class="field" style="grid-column:span 2">
                     <label for="t-domain">Domain Custom</label>
                     <input id="t-domain" placeholder="workspace.perusahaan.co.id" bind:value={newTenant.domain} />
                   </div>
                 {/if}
-                <div class="field" style="grid-column:span 3;padding:12px;background:var(--bg-2);border-radius:8px;border:1px solid var(--bd-1)">
-                  <span style="font-size:11px;color:var(--fg-4)">Email admin yang akan dibuat:</span>
-                  <div style="font-size:14px;font-weight:600;color:var(--pri);margin-top:4px">{tenantAdminEmail}</div>
+                <div class="admin-preview" style="grid-column:span 2">
+                  <span class="field-hint">Email admin yang akan dibuat:</span>
+                  <div class="admin-email">{tenantAdminEmail}</div>
                 </div>
-                <div class="field" style="grid-column:span 2">
+                <div class="field">
                   <label for="t-aname">Nama Admin Tenant</label>
                   <input id="t-aname" placeholder="Budi Santoso" bind:value={newTenant.adminName} />
                 </div>
@@ -673,7 +675,7 @@
                 </div>
                 <code class="health-ip mono">{s.ip}</code>
               </div>
-              {#each [{l:'CPU',v:s.cpu},{l:'RAM',v:s.ram},{l:'NET',v:s.net ?? 0}] as m}
+              {#each [{l:'CPU',v:s.cpu},{l:'RAM',v:s.ram},{l:'DSK',v:s.disk ?? 0}] as m}
                 <div class="metric-row">
                   <span class="metric-label mono">{m.l}</span>
                   <div class="metric-bar">
@@ -682,6 +684,12 @@
                   <span class="metric-val mono">{m.v}%</span>
                 </div>
               {/each}
+              {#if s.load !== undefined}
+                <div class="load-row">
+                  <span class="metric-label mono" style="color:var(--fg-4)">LD1</span>
+                  <span class="load-val mono">{s.load.toFixed(2)}</span>
+                </div>
+              {/if}
             </div>
           {/each}
         </div>
@@ -708,7 +716,7 @@
         {#if loading}
           <div class="empty-state">Memuat audit log...</div>
         {:else if filteredLogs.length === 0}
-          <div class="empty-state">Tidak ada log ditemukan</div>
+          <div class="empty-state">{searchAudit ? 'Tidak ada log ditemukan' : 'Belum ada aktivitas'}</div>
         {:else}
           <table class="data-table">
             <thead>
@@ -841,11 +849,21 @@
   .btn-danger:hover { background:rgba(248,113,113,.18); }
 
   /* ── Form ────────────────────────────────────────────────── */
-  .form-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; }
+  .form-grid   { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; }
+  .form-grid-2 { display:grid; grid-template-columns:repeat(2,1fr); gap:14px; }
   .field { display:flex; flex-direction:column; gap:6px; }
-  .field label { font-size:11px; font-weight:600; color:var(--fg-3); letter-spacing:.04em; }
+  .field label { font-size:11px; font-weight:600; color:var(--fg-3); letter-spacing:.04em; text-transform:uppercase; }
   .field input, .field select { background:var(--bg-2); border:1px solid var(--bd-2); border-radius:var(--r-md); padding:8px 12px; font-size:13px; color:var(--fg-1); font-family:inherit; outline:none; transition:border-color .15s; }
   .field input:focus, .field select:focus { border-color:var(--pri); }
+  .field-preview { font-size:11px; color:var(--pri); margin-top:2px; }
+  .sublabel { font-size:10px !important; font-weight:500 !important; color:var(--fg-4) !important; text-transform:none !important; letter-spacing:0 !important; }
+  .quota-row { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+  .checkbox-label { display:flex; align-items:center; gap:8px; cursor:pointer; font-size:13px !important; font-weight:400 !important; letter-spacing:0 !important; text-transform:none !important; color:var(--fg-2) !important; }
+  .admin-preview { padding:12px; background:var(--bg-2); border-radius:8px; border:1px solid var(--bd-1); }
+  .admin-email { font-size:14px; font-weight:600; color:var(--pri); margin-top:4px; }
+  /* ── Health load row ──────────────────────────────────────── */
+  .load-row { display:flex; align-items:center; gap:8px; margin-top:6px; }
+  .load-val { font-size:11px; color:var(--fg-2); }
 
   /* ── Empty state ─────────────────────────────────────────── */
   .empty-state { padding:48px 24px; text-align:center; color:var(--fg-3); font-size:13px; }

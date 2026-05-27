@@ -24,9 +24,12 @@ export interface VM {
   name: string;
   role: string;
   ip: string;
+  status?: string;
   cpu: number;
   ram: number;
-  net: number;
+  disk?: number;
+  load?: number;
+  net?: number;
 }
 
 export interface KcProfile {
@@ -39,6 +42,7 @@ export interface KcProfile {
   isAdmin: boolean;
   isTenantAdmin: boolean;
   organizationSlug: string;
+  tenantName: string;
 }
 
 export type Scene = 'landing' | 'dashboard' | 'admin';

@@ -9,7 +9,9 @@ class AuthState {
   authenticated = $state(false);
   profile: KcProfile = $state({
     firstName: '', lastName: '', fullName: '', initials: 'U',
-    username: '', email: '', isAdmin: false , isTenantAdmin: false, organizationSlug: ''
+    username: '', email: '',
+    isAdmin: false, isTenantAdmin: false,
+    organizationSlug: '', tenantName: '',
   });
 
   async init() {
@@ -23,18 +25,19 @@ class AuthState {
         pkceMethod: 'S256'
       });
       if (this.authenticated) {
-        this.#loadProfile();
+        this.#loadProfileFromToken();
         this.#saveCookie();
         this.#scheduleRefresh();
+        // Enrich with DB role info in the background (non-blocking)
+        this.#enrichProfileFromBackend().catch(() => {});
       }
     } finally {
       this.loading = false;
     }
   }
 
-  login() { this.kc?.login({ redirectUri: 'https://opsid.web.id' }); }
-
-logout() {
+  login()  { this.kc?.login({ redirectUri: 'https://opsid.web.id' }); }
+  logout() {
     this.#clearCookie();
     this.kc?.logout({ redirectUri: 'https://opsid.web.id' });
   }
@@ -42,28 +45,44 @@ logout() {
   get token(): string | undefined { return this.kc?.token; }
 
   // ── private ────────────────────────────────────────────────
-#loadProfile() {
-  const t = this.kc.tokenParsed;
-  if (!t) return;
-  const firstName = t.given_name ?? t.preferred_username ?? 'User';
-  const lastName  = t.family_name ?? '';
-  const username  = t.preferred_username ?? '';
-  const roles: string[] = t.realm_access?.roles ?? [];
-  const orgs = t.organizations ?? {};
-  const orgSlugs = Object.keys(orgs);
-  const isTenantAdmin = orgSlugs.some(slug => orgs[slug]?.roles?.includes('org-admin'));
-  
-  this.profile = {
-    firstName, lastName,
-    fullName: t.name ?? `${firstName} ${lastName}`.trim(),
-    initials: ((firstName[0] ?? '') + (lastName[0] ?? '')).toUpperCase() || 'U',
-    username,
-    email: t.email ?? '',
-    isAdmin: roles.includes('opsid-admin'),
-    isTenantAdmin,
-    organizationSlug: orgSlugs[0] ?? ''
-  };
-}
+  #loadProfileFromToken() {
+    const t = this.kc.tokenParsed;
+    if (!t) return;
+    const firstName = t.given_name  ?? t.preferred_username ?? 'User';
+    const lastName  = t.family_name ?? '';
+    const username  = t.preferred_username ?? '';
+    const roles: string[] = t.realm_access?.roles ?? [];
+
+    this.profile = {
+      firstName, lastName,
+      fullName:  t.name ?? `${firstName} ${lastName}`.trim(),
+      initials:  ((firstName[0] ?? '') + (lastName[0] ?? '')).toUpperCase() || 'U',
+      username,
+      email:          t.email ?? '',
+      isAdmin:        roles.includes('opsid-admin'),
+      isTenantAdmin:  false,   // will be overwritten by backend
+      organizationSlug: '',
+      tenantName: '',
+    };
+  }
+
+  async #enrichProfileFromBackend() {
+    try {
+      const res = await fetch('/api/me');
+      if (!res.ok) return;
+      const d = await res.json();
+      // Merge only the DB-authoritative fields; keep token fields (name, email, etc.)
+      this.profile = {
+        ...this.profile,
+        isTenantAdmin:   d.isTenantAdmin  ?? this.profile.isTenantAdmin,
+        organizationSlug: d.organizationSlug ?? this.profile.organizationSlug,
+        tenantName:      d.tenantName     ?? this.profile.tenantName,
+      };
+    } catch {
+      // Non-fatal — user still gets token-based roles
+    }
+  }
+
   #saveCookie() {
     if (!this.kc?.token) return;
     document.cookie = `opsid_token=${this.kc.token}; path=/; domain=.opsid.web.id; max-age=3600; SameSite=Lax; Secure`;

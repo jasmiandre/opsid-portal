@@ -102,14 +102,28 @@ async function createKcUser(slug: string, adminName: string, adminPassword: stri
   return null;
 }
 
-async function assignOrgAdmin(orgId: string, userId: string): Promise<void> {
+async function findKcUserByUsername(username: string): Promise<string | null> {
   const token = await getKcToken();
-  // Tambah user ke organization dulu
-  await fetch(`${KC_BASE}/admin/realms/opsid-internal/organizations/${orgId}/members`, {
+  const res = await fetch(
+    `${KC_BASE}/admin/realms/opsid-internal/users?username=${encodeURIComponent(username)}&exact=true`,
+    { headers: { 'Authorization': `Bearer ${token}` } }
+  );
+  if (!res.ok) return null;
+  const users = await res.json();
+  return users[0]?.id ?? null;
+}
+
+async function assignOrgMember(orgId: string, userId: string): Promise<void> {
+  const token = await getKcToken();
+  // Keycloak Organizations API expects a raw JSON string (the userId), not an object
+  const res = await fetch(`${KC_BASE}/admin/realms/opsid-internal/organizations/${orgId}/members`, {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id: userId }),
+    body: JSON.stringify(userId),
   });
+  if (!res.ok && res.status !== 409) {
+    throw new Error(`Keycloak assignOrgMember failed: ${res.status}`);
+  }
 }
 
 async function createFreeIPAGroup(slug: string): Promise<void> {
@@ -194,24 +208,37 @@ export const POST: RequestHandler = async ({ request }) => {
     const orgId = await createKeycloakOrg(slug, name, tenantDomain).catch(() => null);
 
     // 5. Buat user admin jika disediakan
-if (adminName && adminPassword) {
-  const adminUsername = `admin.${slug}`;
-  const adminEmail = `admin@${tenantDomain}`;
+    if (adminName && adminPassword) {
+      const adminUsername = `admin.${slug}`;
+      const adminEmail    = `admin@${tenantDomain}`;
 
-  await createFreeIPAUser(slug, adminName, adminPassword, tenantDomain);
+      // FreeIPA user + group member
+      await createFreeIPAUser(slug, adminName, adminPassword, tenantDomain).catch(() => null);
 
-  await db.query(
-    `INSERT INTO tenant_users (tenant_id, username, email, full_name, role, is_admin, status)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
-     ON CONFLICT (tenant_id, username)
-     DO UPDATE SET email = EXCLUDED.email,
-                   full_name = EXCLUDED.full_name,
-                   role = EXCLUDED.role,
-                   is_admin = EXCLUDED.is_admin,
-                   status = EXCLUDED.status`,
-    [tenant.id, adminUsername, adminEmail, adminName, 'org-admin', true, 'active']
-  );
-}
+      // Keycloak user (create or find existing)
+      let kcUserId = await createKcUser(slug, adminName, adminPassword, tenantDomain).catch(() => null);
+      if (!kcUserId) {
+        kcUserId = await findKcUserByUsername(adminUsername).catch(() => null);
+      }
+
+      // Assign user to Keycloak Organization
+      if (kcUserId && orgId) {
+        await assignOrgMember(orgId, kcUserId).catch(() => null);
+      }
+
+      // tenant_users record — source of truth for isTenantAdmin
+      await db.query(
+        `INSERT INTO tenant_users (tenant_id, username, email, full_name, role, is_admin, status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (tenant_id, username)
+         DO UPDATE SET email      = EXCLUDED.email,
+                       full_name  = EXCLUDED.full_name,
+                       role       = EXCLUDED.role,
+                       is_admin   = EXCLUDED.is_admin,
+                       status     = EXCLUDED.status`,
+        [tenant.id, adminUsername, adminEmail, adminName, 'org-admin', true, 'active']
+      );
+    }
     // 6. Audit log
     await db.query(
       `INSERT INTO audit_logs (actor, action, target, metadata) VALUES ($1, $2, $3, $4)`,
