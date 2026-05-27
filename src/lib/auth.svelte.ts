@@ -59,7 +59,7 @@ logout() {
     initials: ((firstName[0] ?? '') + (lastName[0] ?? '')).toUpperCase() || 'U',
     username,
     email: t.email ?? '',
-    isAdmin: roles.some(r => ['admin','realm-admin','opsid-admin'].includes(r)) || username === 'jasmiandre',
+    isAdmin: roles.includes('opsid-admin'),
     isTenantAdmin,
     organizationSlug: orgSlugs[0] ?? ''
   };

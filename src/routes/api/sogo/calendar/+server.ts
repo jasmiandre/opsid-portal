@@ -68,11 +68,35 @@ export const GET: RequestHandler = async ({ url, cookies }) => {
       signal: AbortSignal.timeout(6000),
     });
 
-    if (!res.ok) return json({ events: [] });
+if (!res.ok) {
+  const errorText = await res.text().catch(() => '');
+  console.error('SOGo CalDAV error:', res.status, errorText.slice(0, 300));
+  return json({
+    events: [],
+    error: 'SOGo CalDAV failed',
+    status: res.status,
+    detail: errorText.slice(0, 300),
+  });
+}
+const text = await res.text();
+const events = parseIcalEvents(text);
 
-    const text = await res.text();
-    return json({ events: parseIcalEvents(text) });
-  } catch {
-    return json({ events: [] });
-  }
+return json({
+  events,
+  debug: {
+    sogoStatus: res.status,
+    sogoOk: res.ok,
+    responseLength: text.length,
+    hasCalendarData: text.includes('calendar-data'),
+    preview: text.slice(0, 300),
+  },
+});
+} catch (e) {
+  console.error('SOGo Calendar fetch failed:', e);
+  return json({
+    events: [],
+    error: 'SOGo Calendar fetch exception',
+    detail: String(e),
+  });
+}
 };

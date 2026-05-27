@@ -57,6 +57,9 @@
     return new Date().toLocaleDateString('id-ID', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
   }
   function openApp(url: string) { window.open(url, '_blank'); }
+  function sogoCalendarUrl() {
+   return `https://mail.opsid.web.id/SOGo/so/${auth.profile.username}/Calendar/view#!/calendar/week/`;
+  }
   function fileColor(t: string) {
     return t==='docx'?'var(--pri)':t==='pdf'?'var(--danger)':t==='xlsx'?'var(--ok)':'var(--warn)';
   }
@@ -107,11 +110,7 @@
       agenda = calRes.value.events;
     } else {
       // Fallback kalau CalDAV belum ada event
-      agenda = [
-        { time:'10:00', title:'Stand-up infra · 15 menit', meta:'9 peserta · Google Meet', color:'var(--pri)' },
-        { time:'13:30', title:'Review onboarding Tenant',   meta:'Mira, Bagas, Dewi',       color:'var(--ok)'  },
-        { time:'16:00', title:'Sprint demo hackathon',      meta:'Tim portal · Zoom',        color:'var(--warn)'},
-      ];
+      agenda = [];
     }
     if (notifRes.status === 'fulfilled') {
       notifCount = notifRes.value.unread ?? 0;
@@ -287,13 +286,18 @@
       <div class="panel">
         <div class="panel-head">
           <span class="panel-title">Jadwal Hari Ini</span>
-          <button class="btn btn-ghost btn-sm" onclick={() => openApp(APP_URLS.mail)}>
+          <button class="btn btn-ghost btn-sm" onclick={() => openApp(sogoCalendarUrl())}>
             {@html I.cal} Kalender
           </button>
         </div>
         <div class="agenda">
+	 {#if loading}
+	  <div class="empty-state">Memuat jadwal...</div>
+	  {:else if agenda.length === 0}
+	  <div class="empty-state">Tidak ada jadwal hari ini</div>
+	  {:else}
           {#each agenda as a (a.time)}
-            <div class="agenda-row">
+            <div class="agenda-row" onclick={() => openApp(sogoCalendarUrl())}>
               <span class="agenda-time">{a.time}</span>
               <span class="agenda-bar" style="background:{a.color}"></span>
               <div>
@@ -302,6 +306,7 @@
               </div>
             </div>
           {/each}
+	  {/if}
           <div style="padding:12px 20px;border-top:1px solid var(--bd-1);font-size:11px;color:var(--fg-4)" class="mono">
             Sinkronisasi via CalDAV · mail.opsid.web.id
           </div>

@@ -4,7 +4,11 @@ import db from '$lib/db';
 
 const NGINX_API  = 'http://10.34.1.1:8080';
 const KC_BASE    = 'https://auth.opsid.web.id';
-const IPA_BASE   = 'https://ipa.opsid.web.id/ipa/session/json';
+const FREEIPA_URL = 'https://ipa.opsid.web.id/ipa';
+const FREEIPA_ADMIN = 'admin';
+const FREEIPA_PASS = 'Sandiaman2026';
+
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 const PORTAL_UPSTREAM = '10.34.1.2:3000';
 
 function generateSlug(name: string): string {
@@ -24,6 +28,42 @@ async function getKcToken(): Promise<string> {
   const d = await res.json();
   return d.access_token;
 }
+
+async function ipaLogin(): Promise<string> {
+  const res = await fetch(`${FREEIPA_URL}/session/login_password`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Referer': FREEIPA_URL,
+      'Accept': 'text/plain',
+    },
+    body: `user=${FREEIPA_ADMIN}&password=${encodeURIComponent(FREEIPA_PASS)}`,
+  });
+
+  if (!res.ok) throw new Error(`FreeIPA login failed: ${res.status}`);
+  return res.headers.get('set-cookie') || '';
+}
+
+async function ipaCall(cookie: string, method: string, args: any[], kwargs: any = {}): Promise<any> {
+  const res = await fetch(`${FREEIPA_URL}/session/json`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Referer': FREEIPA_URL,
+      'Cookie': cookie,
+    },
+    body: JSON.stringify({
+      method,
+      params: [args, kwargs],
+      id: 0,
+    }),
+  });
+
+  const data = await res.json();
+  if (data.error) throw new Error(`FreeIPA ${method} failed: ${data.error.message}`);
+  return data;
+}
+
 
 async function createKeycloakOrg(slug: string, name: string, domain: string): Promise<string | null> {
   const token = await getKcToken();
@@ -73,30 +113,30 @@ async function assignOrgAdmin(orgId: string, userId: string): Promise<void> {
 }
 
 async function createFreeIPAGroup(slug: string): Promise<void> {
-  await fetch(IPA_BASE, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Referer': 'https://ipa.opsid.web.id/ipa' },
-    body: JSON.stringify({
-      method: 'group_add',
-      params: [[`${slug}-users`], { description: `Users for tenant ${slug}`, nonposix: true }],
-    }),
+  const cookie = await ipaLogin();
+  await ipaCall(cookie, 'group_add', [`${slug}-users`], {
+    description: `Users for tenant ${slug}`,
+    nonposix: true,
   });
 }
 
 async function createFreeIPAUser(slug: string, adminName: string, adminPassword: string, domain: string): Promise<void> {
-  const names = adminName.split(' ');
-  await fetch(IPA_BASE, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Referer': 'https://ipa.opsid.web.id/ipa' },
-    body: JSON.stringify({
-      method: 'user_add',
-      params: [[`admin.${slug}`], {
-        givenname: names[0],
-        sn: names.slice(1).join(' ') || slug,
-        mail: [`admin@${domain}`],
-        userpassword: adminPassword,
-      }],
-    }),
+  const cookie = await ipaLogin();
+  const names = adminName.trim().split(' ');
+  const username = `admin.${slug}`;
+
+  await ipaCall(cookie, 'user_add', [username], {
+    givenname: names[0],
+    sn: names.slice(1).join(' ') || slug,
+    cn: adminName,
+    mail: `admin@${domain}`,
+    userpassword: adminPassword,
+    departmentnumber: [slug],
+    title: 'org-admin',
+  });
+
+  await ipaCall(cookie, 'group_add_member', [`${slug}-users`], {
+    user: username,
   });
 }
 
@@ -154,15 +194,24 @@ export const POST: RequestHandler = async ({ request }) => {
     const orgId = await createKeycloakOrg(slug, name, tenantDomain).catch(() => null);
 
     // 5. Buat user admin jika disediakan
-    if (adminName && adminPassword) {
-      const kcUserId = await createKcUser(slug, adminName, adminPassword, tenantDomain).catch(() => null);
-      await createFreeIPAUser(slug, adminName, adminPassword, tenantDomain).catch(() => null);
+if (adminName && adminPassword) {
+  const adminUsername = `admin.${slug}`;
+  const adminEmail = `admin@${tenantDomain}`;
 
-      if (kcUserId && orgId) {
-        await assignOrgAdmin(orgId, kcUserId).catch(() => null);
-      }
-    }
+  await createFreeIPAUser(slug, adminName, adminPassword, tenantDomain);
 
+  await db.query(
+    `INSERT INTO tenant_users (tenant_id, username, email, full_name, role, is_admin, status)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     ON CONFLICT (tenant_id, username)
+     DO UPDATE SET email = EXCLUDED.email,
+                   full_name = EXCLUDED.full_name,
+                   role = EXCLUDED.role,
+                   is_admin = EXCLUDED.is_admin,
+                   status = EXCLUDED.status`,
+    [tenant.id, adminUsername, adminEmail, adminName, 'org-admin', true, 'active']
+  );
+}
     // 6. Audit log
     await db.query(
       `INSERT INTO audit_logs (actor, action, target, metadata) VALUES ($1, $2, $3, $4)`,
