@@ -36,7 +36,9 @@
     <div class="crumb"><strong>Mail</strong></div>
     <div class="topbar-right">
       <button class="btn btn-secondary btn-sm" onclick={load}>{@html I.refresh}</button>
-      <a class="btn btn-primary btn-sm" href="{APP_URLS.mail}/compose" target="_blank" rel="noopener">
+      <a class="btn btn-primary btn-sm"
+         href="https://mail.opsid.web.id/SOGo/so/{auth.profile.username}/Mail/compose"
+         target="_blank" rel="noopener">
         {@html I.compose} Tulis Email
       </a>
       <a class="btn btn-secondary btn-sm" href={APP_URLS.mail} target="_blank" rel="noopener">

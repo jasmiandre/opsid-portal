@@ -82,6 +82,15 @@
   let impersonating       = $state(false);
   let impersonateTarget   = $state('');
 
+  // ── Edit User modal ─────────────────────────────────────────
+  let editTarget  = $state<User | null>(null);
+  let editForm    = $state({ fullname: '', email: '', dept: '', role: '' });
+  let editBusy    = $state(false);
+  let editMsg     = $state('');
+
+  // ── Delete User confirmation ────────────────────────────────
+  let deleteUserTarget = $state<User | null>(null);
+
   // ── Tenant Users Modal ──────────────────────────────────────
   let tenantUsersOpen   = $state(false);
   let tenantUsersTarget = $state<Tenant | null>(null);
@@ -350,16 +359,19 @@
 
   async function doImpersonate(username: string, name: string) {
     try {
-      const kcAdminUrl = 'https://auth.opsid.web.id/admin/master/console/#/opsid-internal/users';
-      await fetch('/api/admin/impersonate', {
+      const res = await fetch('/api/admin/impersonate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username }),
       });
-      impersonating = true;
-      impersonateTarget = name;
-      alert('Untuk impersonate ' + name + ':\n1. Buka Keycloak Admin\n2. Users -> ' + username + ' -> Impersonate');
-      window.open(kcAdminUrl, '_blank');
+      const data = await res.json();
+      if (data.ok && data.redirect) {
+        impersonating = true;
+        impersonateTarget = name;
+        window.open(data.redirect, '_blank');
+      } else {
+        alert('Impersonasi gagal: ' + (data.error ?? 'Unknown error'));
+      }
     } catch {
       alert('Koneksi gagal');
     }
@@ -368,6 +380,90 @@
   function stopImpersonate() {
     impersonating = false;
     impersonateTarget = '';
+  }
+
+  // ── Edit User ────────────────────────────────────────────────
+  function openEditUser(u: User) {
+    editTarget = u;
+    editForm   = { fullname: u.name, email: u.email, dept: u.dept, role: u.role };
+    editMsg    = '';
+  }
+
+  async function saveEditUser() {
+    if (!editTarget) return;
+    editBusy = true; editMsg = '';
+    try {
+      const res = await fetch(`/api/users/${encodeURIComponent(editTarget.username)}`, {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          fullname: editForm.fullname,
+          email:    editForm.email,
+          dept:     editForm.dept,
+          role:     editForm.role,
+        }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        editMsg = 'Tersimpan';
+        // Update local state immediately
+        users = users.map(u =>
+          u.username === editTarget!.username
+            ? { ...u, name: editForm.fullname, email: editForm.email, dept: editForm.dept, role: editForm.role }
+            : u
+        );
+        setTimeout(() => { editTarget = null; }, 800);
+      } else {
+        editMsg = 'Gagal: ' + (data.error ?? 'Unknown error');
+      }
+    } catch {
+      editMsg = 'Koneksi gagal';
+    }
+    editBusy = false;
+  }
+
+  // ── Suspend / Activate ───────────────────────────────────────
+  async function doSuspendToggle(u: User) {
+    const action = u.status === 'active' ? 'suspend' : 'activate';
+    const label  = action === 'suspend' ? 'men-suspend' : 'mengaktifkan';
+    if (!confirm(`Yakin ingin ${label} user ${u.name}?`)) return;
+    try {
+      const res = await fetch(`/api/users/${encodeURIComponent(u.username)}`, {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ action }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        users = users.map(x =>
+          x.username === u.username
+            ? { ...x, status: action === 'suspend' ? 'suspended' : 'active' }
+            : x
+        );
+      } else {
+        alert('Gagal: ' + (data.error ?? 'Unknown error'));
+      }
+    } catch {
+      alert('Koneksi gagal');
+    }
+  }
+
+  // ── Delete User ──────────────────────────────────────────────
+  async function doDeleteUser(u: User) {
+    submitting = true;
+    try {
+      const res = await fetch(`/api/users/${encodeURIComponent(u.username)}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.ok) {
+        users = users.filter(x => x.username !== u.username);
+        deleteUserTarget = null;
+      } else {
+        alert('Gagal menghapus: ' + (data.error ?? 'Unknown error'));
+      }
+    } catch {
+      alert('Koneksi gagal');
+    }
+    submitting = false;
   }
 
   async function saveTenantBranding() {
@@ -506,9 +602,24 @@
                   </td>
                   <td>
                     <div class="action-btns">
-                      <button class="btn btn-ghost btn-sm" title="Impersonate" onclick={() => doImpersonate(u.username, u.name ?? u.username)}>{@html I.eye}</button>
-                      <button class="btn btn-ghost btn-sm" title="Edit">{@html I.edit}</button>
-                      <button class="btn btn-ghost btn-sm" style="color:var(--danger)" title="Suspend">{@html I.lock}</button>
+                      <button class="btn btn-ghost btn-sm" title="Impersonate"
+                        onclick={() => doImpersonate(u.username, u.name ?? u.username)}>
+                        {@html I.eye}
+                      </button>
+                      <button class="btn btn-ghost btn-sm" title="Edit"
+                        onclick={() => openEditUser(u)}>
+                        {@html I.edit}
+                      </button>
+                      <button class="btn btn-ghost btn-sm"
+                        style="color:{u.status === 'active' ? 'var(--warn)' : 'var(--ok)'}"
+                        title={u.status === 'active' ? 'Suspend' : 'Aktifkan'}
+                        onclick={() => doSuspendToggle(u)}>
+                        {@html I.lock}
+                      </button>
+                      <button class="btn btn-ghost btn-sm" style="color:var(--danger)" title="Hapus"
+                        onclick={() => deleteUserTarget = u}>
+                        {@html I.trash}
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -545,6 +656,77 @@
               <button class="btn btn-secondary" onclick={() => showAddUser = false}>Batal</button>
               <button class="btn btn-primary" onclick={createUser} disabled={submitting}>
                 {submitting ? 'Membuat...' : 'Buat User'}
+              </button>
+            </div>
+          </div>
+        </div>
+      {/if}
+
+      <!-- ── Edit User Modal ───────────────────────────────── -->
+      {#if editTarget}
+        <div class="modal-overlay" onclick={() => editTarget = null}>
+          <div class="modal" onclick={(e) => e.stopPropagation()}>
+            <div class="modal-head">
+              <h3>Edit User · <span class="mono" style="font-size:13px;color:var(--fg-3)">{editTarget.username}</span></h3>
+              <button class="btn-icon" onclick={() => editTarget = null}>{@html I.x}</button>
+            </div>
+            <div class="modal-body">
+              <div class="form-grid">
+                <div class="field" style="grid-column:span 3">
+                  <label for="eu-name">Nama Lengkap</label>
+                  <input id="eu-name" placeholder="Nama lengkap" bind:value={editForm.fullname} />
+                </div>
+                <div class="field" style="grid-column:span 2">
+                  <label for="eu-email">Email</label>
+                  <input id="eu-email" type="email" placeholder="email@domain.com" bind:value={editForm.email} />
+                </div>
+                <div class="field">
+                  <label for="eu-dept">Departemen</label>
+                  <input id="eu-dept" placeholder="Engineering" bind:value={editForm.dept} />
+                </div>
+                <div class="field">
+                  <label for="eu-role">Role</label>
+                  <select id="eu-role" bind:value={editForm.role}>
+                    <option>Staff</option><option>Operator</option><option>Manager</option><option>Admin</option>
+                  </select>
+                </div>
+              </div>
+              {#if editMsg}
+                <p style="margin-top:12px;font-size:12px;color:{editMsg === 'Tersimpan' ? 'var(--ok)' : 'var(--danger)'}">
+                  {editMsg}
+                </p>
+              {/if}
+            </div>
+            <div class="modal-foot">
+              <button class="btn btn-secondary" onclick={() => editTarget = null}>Batal</button>
+              <button class="btn btn-primary" onclick={saveEditUser} disabled={editBusy}>
+                {editBusy ? 'Menyimpan...' : 'Simpan Perubahan'}
+              </button>
+            </div>
+          </div>
+        </div>
+      {/if}
+
+      <!-- ── Delete User Confirmation ──────────────────────── -->
+      {#if deleteUserTarget}
+        <div class="modal-overlay" onclick={() => deleteUserTarget = null}>
+          <div class="modal" style="width:420px" onclick={(e) => e.stopPropagation()}>
+            <div class="modal-head">
+              <h3>Hapus User</h3>
+              <button class="btn-icon" onclick={() => deleteUserTarget = null}>{@html I.x}</button>
+            </div>
+            <div class="modal-body">
+              <p style="font-size:13px;color:var(--fg-2);line-height:1.6">
+                Yakin ingin menghapus user <strong style="color:var(--fg-1)">{deleteUserTarget.name}</strong>
+                (<code class="mono">{deleteUserTarget.username}</code>)?
+                User akan dihapus dari FreeIPA, Keycloak, dan tenant. Tindakan ini tidak dapat dibatalkan.
+              </p>
+            </div>
+            <div class="modal-foot">
+              <button class="btn btn-secondary" onclick={() => deleteUserTarget = null}>Batal</button>
+              <button class="btn btn-danger" disabled={submitting}
+                onclick={() => deleteUserTarget && doDeleteUser(deleteUserTarget)}>
+                {submitting ? 'Menghapus...' : 'Hapus Permanen'}
               </button>
             </div>
           </div>

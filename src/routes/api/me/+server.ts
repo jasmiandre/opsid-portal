@@ -1,6 +1,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import db from '$lib/db';
+import { logActivity } from '$lib/server/activity';
 
 export const GET: RequestHandler = async ({ cookies }) => {
   const token = cookies.get('opsid_token');
@@ -24,6 +25,8 @@ export const GET: RequestHandler = async ({ cookies }) => {
     const isAdmin    = roles.includes('opsid-admin');
 
     if (isAdmin) {
+      // Record login activity (fire-and-forget)
+      logActivity(username, 'LOGIN', 'portal').catch(() => null);
       return json({
         username, email, firstName, lastName, fullName,
         isAdmin: true,
@@ -54,6 +57,9 @@ export const GET: RequestHandler = async ({ cookies }) => {
 
     const row = result.rows[0] ?? null;
     const isTenantAdmin = row?.role === 'org-admin';
+
+    // Record login activity (fire-and-forget)
+    logActivity(username, 'LOGIN', 'portal', { tenant: row?.slug ?? '' }).catch(() => null);
 
     return json({
       username, email, firstName, lastName, fullName,

@@ -47,9 +47,7 @@
   async function load() {
     loading = true; error = '';
     try {
-      // If not admin, filter by current user as actor
-      const actorFilter = auth.profile.isAdmin ? '' : `&tenant=${encodeURIComponent(auth.profile.organizationSlug)}`;
-      const res = await fetch(`/api/admin/audit${actorFilter}`);
+      const res = await fetch('/api/activity');
       const d = await res.json();
       if (d.logs) logs = d.logs;
       else if (d.error) error = d.error;
