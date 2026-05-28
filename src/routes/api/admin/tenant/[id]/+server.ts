@@ -33,6 +33,65 @@ export const GET: RequestHandler = async ({ params }) => {
   }
 };
 
+export const PUT: RequestHandler = async ({ params, request, cookies }) => {
+  try {
+    // Validate requester — must be superadmin or tenant admin for this exact tenant
+    const token = cookies.get('opsid_token');
+    let username = '';
+    if (token) {
+      try {
+        const b64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+        const t = JSON.parse(Buffer.from(b64, 'base64').toString('utf8'));
+        username = t.preferred_username ?? '';
+        const roles: string[] = t.realm_access?.roles ?? [];
+        const isAdmin = roles.includes('opsid-admin');
+
+        if (!isAdmin) {
+          // Verify tenant admin owns this tenant
+          const ownership = await db.query(
+            `SELECT 1 FROM tenant_users WHERE username = $1 AND tenant_id = $2 AND role = 'org-admin' AND status = 'active'`,
+            [username, params.id]
+          );
+          if (!ownership.rows.length) {
+            return json({ ok: false, error: 'Forbidden' }, { status: 403 });
+          }
+        }
+      } catch {
+        return json({ ok: false, error: 'Invalid token' }, { status: 401 });
+      }
+    } else {
+      return json({ ok: false, error: 'Not authenticated' }, { status: 401 });
+    }
+
+    const body = await request.json();
+    const { primaryColor, logoUrl } = body;
+
+    const updates: string[] = [];
+    const values: any[] = [];
+    let idx = 1;
+
+    if (primaryColor !== undefined) { updates.push(`primary_color = $${idx++}`); values.push(primaryColor); }
+    if (logoUrl !== undefined)       { updates.push(`logo_url = $${idx++}`);       values.push(logoUrl); }
+
+    if (!updates.length) return json({ ok: false, error: 'Tidak ada field yang diubah' }, { status: 400 });
+
+    values.push(params.id);
+    await db.query(
+      `UPDATE tenants SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${idx}`,
+      values
+    );
+
+    await db.query(
+      `INSERT INTO audit_logs (actor, action, target, metadata) VALUES ($1, $2, $3, $4)`,
+      [username || 'system', 'UPDATE_TENANT_BRANDING', String(params.id), JSON.stringify({ primaryColor, logoUrl })]
+    ).catch(() => null);
+
+    return json({ ok: true });
+  } catch (e) {
+    return json({ ok: false, error: String(e) }, { status: 500 });
+  }
+};
+
 export const DELETE: RequestHandler = async ({ params }) => {
   try {
     const result = await db.query(`SELECT * FROM tenants WHERE id = $1`, [params.id]);

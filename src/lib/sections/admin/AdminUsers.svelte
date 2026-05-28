@@ -1,5 +1,6 @@
 <script lang="ts">
   import { auth } from '../../auth.svelte';
+  import { ui } from '../../ui.svelte';
   import { onMount } from 'svelte';
 
   // ── Icons ───────────────────────────────────────────────────
@@ -80,6 +81,22 @@
   let impersonating       = $state(false);
   let impersonateTarget   = $state('');
 
+  // ── Tenant Profile edit (for tenant admin) ──────────────────
+  let tenantEditForm  = $state({ primaryColor: '', logoUrl: '' });
+  let tenantEditMsg   = $state('');
+  let tenantEditBusy  = $state(false);
+
+  $effect(() => {
+    // Pre-fill from auth profile when tab opens
+    if (activeTab === 'tenant-profile') {
+      tenantEditForm = {
+        primaryColor: auth.profile.organizationSlug ? '#3B82F6' : '#3B82F6',
+        logoUrl: '',
+      };
+      tenantEditMsg = '';
+    }
+  });
+
   // ── Forms ───────────────────────────────────────────────────
   let newUser = $state({
     username: '', fullname: '', email: '', dept: '', role: 'Staff', password: ''
@@ -128,13 +145,16 @@
 
   let tabs = $derived((() => {
     const all = [
-      { id: 'users',   label: 'User Management',  icon: I.users },
-      { id: 'tenants', label: 'Tenant Management', icon: I.building },
-      { id: 'health',  label: 'Service Health',    icon: I.pulse },
-      { id: 'audit',   label: 'Audit Log',         icon: I.fileText },
+      { id: 'users',          label: 'User Management',   icon: I.users    },
+      { id: 'tenants',        label: 'Tenant Management', icon: I.building },
+      { id: 'health',         label: 'Service Health',    icon: I.pulse    },
+      { id: 'audit',          label: 'Audit Log',         icon: I.fileText },
     ];
     if (auth.profile.isAdmin) return all;
-    if (auth.profile.isTenantAdmin) return all.slice(0, 2);
+    if (auth.profile.isTenantAdmin) return [
+      { id: 'users',          label: 'User Management',   icon: I.users    },
+      { id: 'tenant-profile', label: 'Profil Organisasi', icon: I.building },
+    ];
     return [];
   })());
 
@@ -337,6 +357,31 @@
     impersonateTarget = '';
   }
 
+  async function saveTenantBranding() {
+    const tid = auth.profile.tenantId;
+    if (!tid) { tenantEditMsg = 'Tenant ID tidak ditemukan'; return; }
+    tenantEditBusy = true; tenantEditMsg = '';
+    try {
+      const res = await fetch('/api/admin/tenant/' + tid, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          primaryColor: tenantEditForm.primaryColor,
+          logoUrl: tenantEditForm.logoUrl,
+        }),
+      });
+      const d = await res.json();
+      if (d.ok) {
+        tenantEditMsg = 'Branding berhasil disimpan';
+      } else {
+        tenantEditMsg = 'Gagal: ' + (d.error ?? 'Unknown error');
+      }
+    } catch {
+      tenantEditMsg = 'Koneksi gagal';
+    }
+    tenantEditBusy = false;
+  }
+
   // ── Mount ───────────────────────────────────────────────────
   onMount(async () => {
     await Promise.allSettled([fetchUsers(), fetchTenants(), fetchHealth(), fetchAuditLogs()]);
@@ -362,7 +407,7 @@
         {@html I.bell}
         <span class="notif-dot"></span>
       </button>
-      <button class="userchip">
+      <button class="userchip" onclick={() => ui.openProfile('profil')}>
         <div style="display:flex;flex-direction:column;align-items:flex-end">
           <span class="uc-name">{greeting()}, {auth.profile.firstName}</span>
           <span class="uc-role">{auth.profile.isAdmin ? 'Superadmin' : 'Tenant Admin'}</span>
@@ -649,6 +694,92 @@
       {/if}
     {/if}
 
+    <!-- ═══════ TENANT PROFILE (tenant admin only) ═══════ -->
+    {#if activeTab === 'tenant-profile'}
+      <div class="page-head">
+        <div>
+          <h1 class="page-h1">Profil Organisasi</h1>
+          <p class="page-sub">{auth.profile.tenantName || 'Organisasi Anda'} · {auth.profile.tenantDomain || auth.profile.organizationSlug + '.opsid.web.id'}</p>
+        </div>
+      </div>
+
+      <div class="tp-grid">
+        <!-- Org Info -->
+        <div class="panel">
+          <div class="panel-head"><span class="panel-title">Informasi Organisasi</span></div>
+          <div class="tp-body">
+            <div class="tp-row">
+              <span class="tp-label">Nama</span>
+              <span class="tp-val">{auth.profile.tenantName || '—'}</span>
+            </div>
+            <div class="tp-row">
+              <span class="tp-label">Slug</span>
+              <code class="tp-val mono">{auth.profile.organizationSlug || '—'}</code>
+            </div>
+            <div class="tp-row">
+              <span class="tp-label">Domain</span>
+              <code class="tp-val mono">{auth.profile.tenantDomain || auth.profile.organizationSlug + '.opsid.web.id'}</code>
+            </div>
+            <div class="tp-row">
+              <span class="tp-label">Status</span>
+              <span class="tag tag-ok">Aktif</span>
+            </div>
+            <div class="tp-row">
+              <span class="tp-label">Total User</span>
+              <span class="tp-val">{users.length} user</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Quota -->
+        <div class="panel">
+          <div class="panel-head"><span class="panel-title">Kuota Layanan</span></div>
+          <div class="tp-body">
+            <div class="tp-row">
+              <span class="tp-label">Nextcloud</span>
+              <span class="tp-val">{auth.profile.planNextcloudGb} GB</span>
+            </div>
+            <div class="tp-row">
+              <span class="tp-label">Email (SOGo)</span>
+              <span class="tp-val">{auth.profile.planEmailGb} GB</span>
+            </div>
+            <div class="tp-row">
+              <span class="tp-label">Odoo ERP</span>
+              <span class="tp-val">{auth.profile.planOdooGb} GB</span>
+            </div>
+            <div style="margin-top:16px;padding:12px;background:var(--bg-2);border-radius:var(--r-md);font-size:12px;color:var(--fg-3)">
+              Untuk upgrade kuota, hubungi administrator OPSID.
+            </div>
+          </div>
+        </div>
+
+        <!-- Branding -->
+        <div class="panel" style="grid-column:span 2">
+          <div class="panel-head"><span class="panel-title">Branding & Tampilan</span></div>
+          <div class="tp-body">
+            <div class="form-grid-2" style="max-width:480px">
+              <div class="field">
+                <label for="tp-color">Warna Brand</label>
+                <input id="tp-color" type="color" bind:value={tenantEditForm.primaryColor} style="height:40px;padding:4px" />
+              </div>
+              <div class="field" style="grid-column:span 2">
+                <label for="tp-logo">Logo URL</label>
+                <input id="tp-logo" placeholder="https://cdn.example.com/logo.png" bind:value={tenantEditForm.logoUrl} />
+              </div>
+            </div>
+            {#if tenantEditMsg}
+              <p class="field-hint" style="margin-top:10px;color:{tenantEditMsg.includes('berhasil') ? 'var(--ok)' : 'var(--danger)'}">
+                {tenantEditMsg}
+              </p>
+            {/if}
+            <button class="btn btn-primary btn-sm" style="margin-top:16px" onclick={saveTenantBranding} disabled={tenantEditBusy}>
+              {tenantEditBusy ? 'Menyimpan...' : 'Simpan Branding'}
+            </button>
+          </div>
+        </div>
+      </div>
+    {/if}
+
     <!-- ═══════ SERVICE HEALTH ═══════ -->
     {#if activeTab === 'health'}
       <div class="page-head">
@@ -864,6 +995,16 @@
   /* ── Health load row ──────────────────────────────────────── */
   .load-row { display:flex; align-items:center; gap:8px; margin-top:6px; }
   .load-val { font-size:11px; color:var(--fg-2); }
+
+  /* ── Tenant Profile ──────────────────────────────────────── */
+  .tp-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:14px; }
+  .panel-head { padding:14px 20px; border-bottom:1px solid var(--bd-1); }
+  .panel-title { font-size:12px; font-weight:700; color:var(--fg-3); text-transform:uppercase; letter-spacing:.06em; }
+  .tp-body { padding:16px 20px; display:flex; flex-direction:column; gap:12px; }
+  .tp-row { display:flex; justify-content:space-between; align-items:center; gap:12px; font-size:13px; }
+  .tp-label { font-size:11px; font-weight:600; color:var(--fg-4); text-transform:uppercase; letter-spacing:.04em; }
+  .tp-val { color:var(--fg-1); }
+  @media(max-width:900px) { .tp-grid { grid-template-columns:1fr; } .tp-grid > [style*="span 2"] { grid-column:span 1; } }
 
   /* ── Empty state ─────────────────────────────────────────── */
   .empty-state { padding:48px 24px; text-align:center; color:var(--fg-3); font-size:13px; }

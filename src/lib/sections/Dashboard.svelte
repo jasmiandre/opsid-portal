@@ -1,5 +1,6 @@
 <script lang="ts">
   import { auth } from '../auth.svelte';
+  import { ui } from '../ui.svelte';
   import { APP_URLS } from '../config';
   import { onMount } from 'svelte';
 
@@ -18,7 +19,6 @@
     eye:    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`,
     settings:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg>`,
     logout: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>`,
-    x:      `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
   };
 
   const apps = [
@@ -36,11 +36,6 @@
   let notifCount    = $state(0);
   let loading       = $state(true);
   let profileOpen   = $state(false);
-  let showProfile   = $state(false);
-  let showSettings  = $state(false);
-  let settingsForm  = $state({ newPassword: '', confirm: '' });
-  let settingsMsg   = $state('');
-  let settingsBusy  = $state(false);
 
   // ── Derived ─────────────────────────────────────────────────
   let storagePct = $derived(storageUser ? Math.round(storageUser.used / storageUser.quota * 100) : 0);
@@ -61,7 +56,16 @@
   function dateStr() {
     return new Date().toLocaleDateString('id-ID', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
   }
-  function openApp(url: string) { window.open(url, '_blank'); }
+  function openApp(url: string, label = '') {
+    // Find matching key from APP_URLS
+    const entry = Object.entries(APP_URLS).find(([, v]) => url.startsWith(v.slice(0, 30)));
+    const key = entry ? entry[0] : 'ext';
+    const appLabel = label || key.toUpperCase();
+    ui.openApp(key, url, appLabel);
+  }
+  function openExternalApp(key: string, url: string, label: string) {
+    ui.openApp(key, url, label);
+  }
   function sogoCalendarUrl() {
    return `https://mail.opsid.web.id/SOGo/so/${auth.profile.username}/Calendar/view#!/calendar/week/`;
   }
@@ -82,34 +86,6 @@
     if (profileOpen && !target.closest('.profile-dropdown')) {
       profileOpen = false;
     }
-  }
-
-  // ── Change password ─────────────────────────────────────────
-  async function changePassword() {
-    if (settingsForm.newPassword !== settingsForm.confirm) {
-      settingsMsg = 'Password baru tidak cocok'; return;
-    }
-    if (settingsForm.newPassword.length < 8) {
-      settingsMsg = 'Password minimal 8 karakter'; return;
-    }
-    settingsBusy = true; settingsMsg = '';
-    try {
-      const res = await fetch('/api/admin/profile', {
-        method:  'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ username: auth.profile.username, newPassword: settingsForm.newPassword }),
-      });
-      const d = await res.json();
-      if (d.ok) {
-        settingsMsg  = 'Password berhasil diubah';
-        settingsForm = { newPassword: '', confirm: '' };
-      } else {
-        settingsMsg = 'Gagal: ' + (d.error ?? 'Unknown error');
-      }
-    } catch {
-      settingsMsg = 'Koneksi gagal';
-    }
-    settingsBusy = false;
   }
 
   // ── Fetch data on mount ─────────────────────────────────────
@@ -187,8 +163,8 @@
               <div style="font-size:13px;font-weight:600;color:var(--fg-1)">{auth.profile.fullName}</div>
               <div style="font-size:11px;color:var(--fg-4);margin-top:2px">{auth.profile.email}</div>
             </div>
-            <button class="profile-item" onclick={() => { showProfile = true; profileOpen = false; }}>{@html I.eye} Lihat Profil</button>
-            <button class="profile-item" onclick={() => { showSettings = true; profileOpen = false; settingsMsg = ''; }}>{@html I.settings} Pengaturan</button>
+            <button class="profile-item" onclick={() => { ui.openProfile('profil'); profileOpen = false; }}>{@html I.eye} Lihat Profil</button>
+            <button class="profile-item" onclick={() => { ui.openProfile('keamanan'); profileOpen = false; }}>{@html I.settings} Pengaturan</button>
             <div style="border-top:1px solid var(--bd-1);margin-top:4px;padding-top:4px">
               <button class="profile-item danger" onclick={() => auth.logout()}>{@html I.logout} Keluar</button>
             </div>
@@ -205,7 +181,7 @@
         <div class="page-h1">{greeting()}, {auth.profile.firstName}.</div>
         <div class="page-sub">{apps.length} aplikasi terhubung · {inboxData.unseen} email belum dibaca · {loading ? '...' : agenda.length} jadwal hari ini</div>
       </div>
-      <button class="btn btn-primary btn-sm" onclick={() => openApp(APP_URLS.mail)}>
+      <button class="btn btn-primary btn-sm" onclick={() => openExternalApp('mail', APP_URLS.mail, 'SOGo Mail')}>
         {@html I.mail} Buka Inbox
       </button>
     </div>
@@ -277,7 +253,7 @@
       </div>
       <div class="quick-row">
         {#each apps as a (a.key)}
-          <button class="quick-tile" onclick={() => openApp(a.url)}>
+          <button class="quick-tile" onclick={() => openExternalApp(a.key, a.url, a.name)}>
             <span class="tile tile-{a.tile}" style="width:52px;height:52px;border-radius:14px">
               {@html (I as any)[a.ic]}
             </span>
@@ -292,7 +268,7 @@
       <div class="panel">
         <div class="panel-head">
           <span class="panel-title">Email Terbaru</span>
-          <button class="btn btn-ghost btn-sm" onclick={() => openApp(APP_URLS.mail)}>
+          <button class="btn btn-ghost btn-sm" onclick={() => openExternalApp('mail', APP_URLS.mail, 'SOGo Mail')}>
             Buka SOGo {@html I.arrowR}
           </button>
         </div>
@@ -319,7 +295,7 @@
       <div class="panel">
         <div class="panel-head">
           <span class="panel-title">Jadwal Hari Ini</span>
-          <button class="btn btn-ghost btn-sm" onclick={() => openApp(sogoCalendarUrl())}>
+          <button class="btn btn-ghost btn-sm" onclick={() => openExternalApp('mail', sogoCalendarUrl(), 'SOGo Kalender')}>
             {@html I.cal} Kalender
           </button>
         </div>
@@ -330,7 +306,7 @@
 	  <div class="empty-state">Tidak ada jadwal hari ini</div>
 	  {:else}
           {#each agenda as a (a.time)}
-            <button class="agenda-row" onclick={() => openApp(sogoCalendarUrl())}>
+            <button class="agenda-row" onclick={() => openExternalApp('mail', sogoCalendarUrl(), 'SOGo Kalender')}>
               <span class="agenda-time">{a.time}</span>
               <span class="agenda-bar" style="background:{a.color}"></span>
               <div style="text-align:left">
@@ -351,13 +327,13 @@
     <div class="panel">
       <div class="panel-head">
         <span class="panel-title">File Terbaru (Nextcloud)</span>
-        <button class="btn btn-ghost btn-sm" onclick={() => openApp(APP_URLS.cloud)}>
+        <button class="btn btn-ghost btn-sm" onclick={() => openExternalApp('cloud', APP_URLS.cloud, 'Nextcloud')}>
           Lihat semua {@html I.arrowR}
         </button>
       </div>
       <div class="file-list">
         {#each recentFiles as f}
-          <button class="file-row" onclick={() => openApp(APP_URLS.cloud)}>
+          <button class="file-row" onclick={() => openExternalApp('cloud', APP_URLS.cloud, 'Nextcloud')}>
             <span class="file-icon" style="color:{fileColor(f.type)}">{@html I.file}</span>
             <div style="flex:1;min-width:0">
               <div class="file-name">{f.name}</div>
@@ -371,72 +347,7 @@
   </div>
 </div>
 
-<!-- ── Modal: Lihat Profil ──────────────────────────────────── -->
-{#if showProfile}
-  <div class="modal-overlay" role="dialog" aria-modal="true" aria-label="Profil Saya">
-    <div class="modal" onclick={(e) => e.stopPropagation()}>
-      <div class="modal-head">
-        <h3>Profil Saya</h3>
-        <button class="btn-icon" onclick={() => showProfile = false} aria-label="Tutup">{@html I.x}</button>
-      </div>
-      <div class="modal-body">
-        <div class="profile-av-lg">{auth.profile.initials}</div>
-        <div class="profile-fields">
-          <div class="pf-row"><span class="pf-label">Nama</span><span class="pf-val">{auth.profile.fullName}</span></div>
-          <div class="pf-row"><span class="pf-label">Username</span><span class="pf-val mono">{auth.profile.username}</span></div>
-          <div class="pf-row"><span class="pf-label">Email</span><span class="pf-val">{auth.profile.email}</span></div>
-          <div class="pf-row"><span class="pf-label">Role</span>
-            <span class="pf-val">{auth.profile.isAdmin ? 'Superadmin' : auth.profile.isTenantAdmin ? 'Tenant Admin' : 'User'}</span>
-          </div>
-          {#if auth.profile.tenantName}
-            <div class="pf-row"><span class="pf-label">Organisasi</span><span class="pf-val">{auth.profile.tenantName}</span></div>
-          {/if}
-          {#if storageUser}
-            <div class="pf-row">
-              <span class="pf-label">Storage</span>
-              <span class="pf-val">{fmtStorage(storageUser.used)} / {storageUser.quota} GB ({storagePct}%)</span>
-            </div>
-          {/if}
-        </div>
-      </div>
-      <div class="modal-foot">
-        <button class="btn btn-secondary" onclick={() => showProfile = false}>Tutup</button>
-      </div>
-    </div>
-  </div>
-{/if}
-
-<!-- ── Modal: Pengaturan / Ganti Password ───────────────────── -->
-{#if showSettings}
-  <div class="modal-overlay" role="dialog" aria-modal="true" aria-label="Pengaturan Akun">
-    <div class="modal" onclick={(e) => e.stopPropagation()}>
-      <div class="modal-head">
-        <h3>Pengaturan Akun</h3>
-        <button class="btn-icon" onclick={() => showSettings = false} aria-label="Tutup">{@html I.x}</button>
-      </div>
-      <div class="modal-body">
-        <p class="settings-section-title">Ganti Password</p>
-        <div class="settings-field">
-          <label for="s-new">Password Baru</label>
-          <input id="s-new" type="password" placeholder="Min 8 karakter" bind:value={settingsForm.newPassword} />
-        </div>
-        <div class="settings-field">
-          <label for="s-confirm">Konfirmasi Password</label>
-          <input id="s-confirm" type="password" placeholder="Ulangi password baru" bind:value={settingsForm.confirm} />
-        </div>
-        {#if settingsMsg}
-          <p class="settings-msg" class:ok={settingsMsg.includes('berhasil')}>{settingsMsg}</p>
-        {/if}
-      </div>
-      <div class="modal-foot">
-        <button class="btn btn-secondary" onclick={() => { showSettings = false; settingsMsg = ''; }}>Batal</button>
-        <button class="btn btn-primary" onclick={changePassword} disabled={settingsBusy}>
-          {settingsBusy ? 'Menyimpan...' : 'Simpan Password'}
-        </button>
-      </div>
-    </div>
-  </div>
-{/if}
+<!-- Profile & Settings handled globally by ProfileModal in +page.svelte -->
 
 <style>
   /* ── Layout ──────────────────────────────────────────────── */
@@ -505,27 +416,7 @@
   .agenda-title { font-size:13px; font-weight:500; color:var(--fg-1); }
   .agenda-meta { font-size:11px; color:var(--fg-3); margin-top:2px; }
 
-  /* ── Modals ──────────────────────────────────────────────── */
-  .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.6); backdrop-filter:blur(8px); z-index:200; display:grid; place-items:center; padding:24px; }
-  .modal { background:var(--bg-1); border:1px solid var(--bd-2); border-radius:18px; width:440px; max-width:100%; box-shadow:0 12px 40px -12px rgba(0,0,0,.7); }
-  .modal-head { padding:20px 24px; border-bottom:1px solid var(--bd-1); display:flex; align-items:center; justify-content:space-between; }
-  .modal-head h3 { font-size:16px; font-weight:600; margin:0; color:var(--fg-1); }
-  .modal-body { padding:20px 24px; display:flex; flex-direction:column; gap:14px; }
-  .modal-foot { padding:16px 24px; border-top:1px solid var(--bd-1); display:flex; justify-content:flex-end; gap:8px; }
-  /* Profile modal */
-  .profile-av-lg { width:64px; height:64px; border-radius:50%; background:var(--pri); color:#fff; font-size:22px; font-weight:700; display:grid; place-items:center; margin:0 auto 4px; }
-  .profile-fields { display:flex; flex-direction:column; gap:10px; }
-  .pf-row { display:flex; justify-content:space-between; align-items:baseline; gap:12px; font-size:13px; }
-  .pf-label { color:var(--fg-4); font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.04em; flex-shrink:0; }
-  .pf-val { color:var(--fg-1); text-align:right; }
-  /* Settings modal */
-  .settings-section-title { font-size:12px; font-weight:700; color:var(--fg-3); text-transform:uppercase; letter-spacing:.06em; margin:0; }
-  .settings-field { display:flex; flex-direction:column; gap:6px; }
-  .settings-field label { font-size:11px; font-weight:600; color:var(--fg-3); }
-  .settings-field input { background:var(--bg-2); border:1px solid var(--bd-2); border-radius:var(--r-md); padding:8px 12px; font-size:13px; color:var(--fg-1); font-family:inherit; outline:none; transition:border-color .15s; }
-  .settings-field input:focus { border-color:var(--pri); }
-  .settings-msg { font-size:12px; color:var(--danger); margin:0; }
-  .settings-msg.ok { color:var(--ok); }
+  /* Modals removed — handled globally by ProfileModal component */
 
   /* ── Files ───────────────────────────────────────────────── */
   .file-row { display:flex; align-items:center; gap:12px; padding:11px 20px; border-bottom:1px solid var(--bd-1); width:100%; text-align:left; transition:.12s; background:none; border-left:none; border-right:none; border-top:none; border-radius:0; cursor:pointer; color:inherit; font-family:inherit; }

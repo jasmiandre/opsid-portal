@@ -12,6 +12,8 @@ class AuthState {
     username: '', email: '',
     isAdmin: false, isTenantAdmin: false,
     organizationSlug: '', tenantName: '',
+    tenantId: null, tenantDomain: '',
+    planNextcloudGb: 0, planEmailGb: 0, planOdooGb: 0,
   });
 
   async init() {
@@ -58,11 +60,13 @@ class AuthState {
       fullName:  t.name ?? `${firstName} ${lastName}`.trim(),
       initials:  ((firstName[0] ?? '') + (lastName[0] ?? '')).toUpperCase() || 'U',
       username,
-      email:          t.email ?? '',
-      isAdmin:        roles.includes('opsid-admin'),
-      isTenantAdmin:  false,   // will be overwritten by backend
+      email:           t.email ?? '',
+      isAdmin:         roles.includes('opsid-admin'),
+      isTenantAdmin:   false,   // will be overwritten by backend
       organizationSlug: '',
       tenantName: '',
+      tenantId: null, tenantDomain: '',
+      planNextcloudGb: 0, planEmailGb: 0, planOdooGb: 0,
     };
   }
 
@@ -74,9 +78,14 @@ class AuthState {
       // Merge only the DB-authoritative fields; keep token fields (name, email, etc.)
       this.profile = {
         ...this.profile,
-        isTenantAdmin:   d.isTenantAdmin  ?? this.profile.isTenantAdmin,
+        isTenantAdmin:    d.isTenantAdmin    ?? this.profile.isTenantAdmin,
         organizationSlug: d.organizationSlug ?? this.profile.organizationSlug,
-        tenantName:      d.tenantName     ?? this.profile.tenantName,
+        tenantName:       d.tenantName       ?? this.profile.tenantName,
+        tenantId:         d.tenantId         ?? this.profile.tenantId,
+        tenantDomain:     d.tenantDomain     ?? this.profile.tenantDomain,
+        planNextcloudGb:  d.planNextcloudGb  ?? this.profile.planNextcloudGb,
+        planEmailGb:      d.planEmailGb      ?? this.profile.planEmailGb,
+        planOdooGb:       d.planOdooGb       ?? this.profile.planOdooGb,
       };
     } catch {
       // Non-fatal — user still gets token-based roles

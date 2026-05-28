@@ -43,8 +43,13 @@ export interface KcProfile {
   isTenantAdmin: boolean;
   organizationSlug: string;
   tenantName: string;
+  tenantId: number | null;
+  tenantDomain: string;
+  planNextcloudGb: number;
+  planEmailGb: number;
+  planOdooGb: number;
 }
 
 export type Scene = 'landing' | 'dashboard' | 'admin';
 export type DashTab = 'dashboard' | 'profile' | 'settings';
-export type AdminTab = 'users' | 'tenants' | 'health';
+export type AdminTab = 'users' | 'tenants' | 'tenant-profile' | 'health' | 'audit';

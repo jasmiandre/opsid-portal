@@ -38,9 +38,12 @@ export const GET: RequestHandler = async ({ cookies }) => {
     // Lookup tenant membership from PostgreSQL (source of truth)
     const result = await db.query(
       `SELECT tu.role, tu.is_admin, tu.status,
-              t.id   AS tenant_id,
-              t.name AS tenant_name,
-              t.slug, t.domain, t.primary_color
+              t.id               AS tenant_id,
+              t.name             AS tenant_name,
+              t.slug, t.domain,  t.primary_color,
+              t.plan_nextcloud_gb,
+              t.plan_email_gb,
+              t.plan_odoo_gb
        FROM   tenant_users tu
        JOIN   tenants t ON tu.tenant_id = t.id
        WHERE  tu.username = $1
@@ -56,15 +59,23 @@ export const GET: RequestHandler = async ({ cookies }) => {
       username, email, firstName, lastName, fullName,
       isAdmin: false,
       isTenantAdmin,
-      tenantRole: row?.role ?? null,
-      organizationSlug: row?.slug ?? '',
-      tenantName: row?.tenant_name ?? '',
+      tenantRole:      row?.role              ?? null,
+      organizationSlug: row?.slug             ?? '',
+      tenantName:      row?.tenant_name       ?? '',
+      tenantId:        row?.tenant_id         ?? null,
+      tenantDomain:    row?.domain            ?? '',
+      planNextcloudGb: row?.plan_nextcloud_gb ?? 50,
+      planEmailGb:     row?.plan_email_gb     ?? 50,
+      planOdooGb:      row?.plan_odoo_gb      ?? 50,
       tenant: row ? {
-        id:           row.tenant_id,
-        name:         row.tenant_name,
-        slug:         row.slug,
-        domain:       row.domain,
-        primaryColor: row.primary_color,
+        id:              row.tenant_id,
+        name:            row.tenant_name,
+        slug:            row.slug,
+        domain:          row.domain,
+        primaryColor:    row.primary_color,
+        planNextcloudGb: row.plan_nextcloud_gb ?? 50,
+        planEmailGb:     row.plan_email_gb     ?? 50,
+        planOdooGb:      row.plan_odoo_gb      ?? 50,
       } : null,
     });
 
