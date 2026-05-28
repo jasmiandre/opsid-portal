@@ -2,12 +2,18 @@
   import { onMount } from 'svelte';
   import { auth } from '$lib/auth.svelte';
   import { ui }   from '$lib/ui.svelte';
-  import Sidebar      from '$lib/components/Sidebar.svelte';
-  import AppViewer    from '$lib/components/AppViewer.svelte';
-  import ProfileModal from '$lib/components/ProfileModal.svelte';
-  import Landing      from '$lib/sections/Landing.svelte';
-  import Dashboard    from '$lib/sections/Dashboard.svelte';
-  import AdminUsers   from '$lib/sections/admin/AdminUsers.svelte';
+  import Sidebar          from '$lib/components/Sidebar.svelte';
+  import AppViewer        from '$lib/components/AppViewer.svelte';
+  import ProfileModal     from '$lib/components/ProfileModal.svelte';
+  import Landing          from '$lib/sections/Landing.svelte';
+  import Dashboard        from '$lib/sections/Dashboard.svelte';
+  import AdminUsers       from '$lib/sections/admin/AdminUsers.svelte';
+  import AppsSection      from '$lib/sections/AppsSection.svelte';
+  import DriveSection     from '$lib/sections/DriveSection.svelte';
+  import MailSection      from '$lib/sections/MailSection.svelte';
+  import CalendarSection  from '$lib/sections/CalendarSection.svelte';
+  import ActivitySection  from '$lib/sections/ActivitySection.svelte';
+  import TasksSection     from '$lib/sections/TasksSection.svelte';
   import type { Scene } from '$lib/types';
 
   let scene: Scene = $state('landing');
@@ -25,9 +31,9 @@
 {:else}
   <div class="shell">
     <Sidebar
-      onDashboard={() => (scene = 'dashboard')}
       {scene}
-      onAdmin={() => (scene = 'admin')}
+      onScene={(s) => { scene = s; }}
+      onAdmin={() => { scene = 'admin'; }}
     />
     <main>
       {#if ui.currentApp}
@@ -36,6 +42,18 @@
         <Dashboard />
       {:else if scene === 'admin'}
         <AdminUsers />
+      {:else if scene === 'apps'}
+        <AppsSection />
+      {:else if scene === 'drive'}
+        <DriveSection />
+      {:else if scene === 'mail'}
+        <MailSection />
+      {:else if scene === 'calendar'}
+        <CalendarSection />
+      {:else if scene === 'activity'}
+        <ActivitySection />
+      {:else if scene === 'tasks'}
+        <TasksSection />
       {/if}
     </main>
   </div>

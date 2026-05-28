@@ -7,47 +7,43 @@
     refresh: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></svg>`,
   };
 
-  let iframe = $state<HTMLIFrameElement | null>(null);
-  let loading = $state(true);
-  let blocked = $state(false);
+  type EmbedState = 'checking' | 'ok' | 'blocked';
+
+  let embedState = $state<EmbedState>('checking');
+  let iframeLoaded = $state(false);
   let prevKey = $state('');
 
-  // Reset state on app change
   $effect(() => {
     const key = ui.currentApp?.key ?? '';
     if (key !== prevKey) {
-      loading = true;
-      blocked = false;
       prevKey = key;
+      embedState = 'checking';
+      iframeLoaded = false;
+      if (ui.currentApp) checkEmbed(ui.currentApp.url);
     }
   });
 
-  function onLoad() {
-    // If iframe content is inaccessible due to X-Frame-Options,
-    // the browser fires load but the contentDocument is null.
+  async function checkEmbed(url: string) {
     try {
-      // Cross-origin iframes throw when accessing contentDocument.
-      // This is the expected case — just mark loaded.
-      loading = false;
+      const res = await fetch(`/api/check-embed?url=${encodeURIComponent(url)}`);
+      const d = await res.json();
+      embedState = d.embeddable ? 'ok' : 'blocked';
     } catch {
-      blocked = true;
-      loading = false;
+      // Network error — try showing iframe anyway
+      embedState = 'ok';
     }
   }
 
-  function onError() {
-    blocked = true;
-    loading = false;
-  }
+  let iframe = $state<HTMLIFrameElement | null>(null);
+
+  function onIframeLoad() { iframeLoaded = true; }
 
   function reload() {
     if (!iframe || !ui.currentApp) return;
-    loading = true;
-    blocked = false;
-    // Force reload by toggling src
+    iframeLoaded = false;
     const src = ui.currentApp.url;
     iframe.src = '';
-    setTimeout(() => { if (iframe) iframe.src = src; }, 50);
+    setTimeout(() => { if (iframe) { iframe.src = src; } }, 30);
   }
 </script>
 
@@ -55,8 +51,7 @@
   <!-- Toolbar -->
   <div class="app-bar">
     <button class="back-btn" onclick={() => ui.closeApp()}>
-      {@html I.arrowL}
-      Dashboard
+      {@html I.arrowL} Dashboard
     </button>
     <div class="app-bar-center">
       <span class="app-title">{ui.currentApp?.label ?? ''}</span>
@@ -65,181 +60,86 @@
       {/if}
     </div>
     <div class="app-bar-actions">
-      <button class="bar-btn" onclick={reload} title="Muat ulang">{@html I.refresh}</button>
-      <a class="bar-btn" href={ui.currentApp?.url} target="_blank" rel="noopener" title="Buka di tab baru">
+      {#if embedState === 'ok'}
+        <button class="bar-btn" onclick={reload} title="Muat ulang">{@html I.refresh}</button>
+      {/if}
+      <a class="bar-btn" href={ui.currentApp?.url} target="_blank" rel="noopener">
         {@html I.arrowUR} Buka di tab baru
       </a>
     </div>
   </div>
 
-  <!-- Loading indicator -->
-  {#if loading}
+  <!-- Checking state -->
+  {#if embedState === 'checking'}
     <div class="frame-loading">
       <div class="spinner"></div>
-      <span>Memuat {ui.currentApp?.label}…</span>
+      <span>Memeriksa {ui.currentApp?.label}…</span>
     </div>
-  {/if}
 
-  <!-- Iframe -->
-  {#if ui.currentApp && !blocked}
-    <iframe
-      bind:this={iframe}
-      src={ui.currentApp.url}
-      title={ui.currentApp.label}
-      onload={onLoad}
-      onerror={onError}
-      class:hidden={loading}
-    ></iframe>
-  {/if}
-
-  <!-- Fallback when blocked by X-Frame-Options / CSP -->
-  {#if blocked}
+  <!-- Blocked by X-Frame-Options / CSP -->
+  {:else if embedState === 'blocked'}
     <div class="fallback">
-      <div class="fallback-icon">🚫</div>
+      <div class="fallback-icon">🔒</div>
       <h3 class="fallback-title">{ui.currentApp?.label} tidak dapat ditampilkan di sini</h3>
-      <p class="fallback-sub">Aplikasi ini memblokir embedding (X-Frame-Options / Content-Security-Policy).<br>Buka di tab baru untuk menggunakannya.</p>
-      <a class="btn btn-primary" href={ui.currentApp?.url} target="_blank" rel="noopener">
-        Buka {ui.currentApp?.label} {@html I.arrowUR}
-      </a>
+      <p class="fallback-sub">
+        Aplikasi ini memblokir embedding karena kebijakan keamanan (X-Frame-Options / Content-Security-Policy).<br>
+        Gunakan tombol di bawah untuk membukanya di tab baru.
+      </p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center">
+        <a class="btn btn-primary" href={ui.currentApp?.url} target="_blank" rel="noopener">
+          Buka {ui.currentApp?.label} {@html I.arrowUR}
+        </a>
+        <button class="btn btn-secondary" onclick={() => { embedState = 'ok'; iframeLoaded = false; }}>
+          Coba embed lagi
+        </button>
+      </div>
     </div>
+
+  <!-- Iframe OK -->
+  {:else}
+    {#if !iframeLoaded}
+      <div class="frame-loading">
+        <div class="spinner"></div>
+        <span>Memuat {ui.currentApp?.label}…</span>
+      </div>
+    {/if}
+    {#if ui.currentApp}
+      <iframe
+        bind:this={iframe}
+        src={ui.currentApp.url}
+        title={ui.currentApp.label}
+        onload={onIframeLoad}
+        class:hidden={!iframeLoaded}
+      ></iframe>
+    {/if}
   {/if}
 </div>
 
 <style>
-  .app-frame {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-    overflow: hidden;
-    position: relative;
-  }
+  .app-frame { flex:1; display:flex; flex-direction:column; height:100%; overflow:hidden; position:relative; }
 
-  /* Toolbar */
-  .app-bar {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 0 16px;
-    height: 48px;
-    background: var(--bg-1);
-    border-bottom: 1px solid var(--bd-1);
-    flex-shrink: 0;
-    z-index: 5;
-  }
+  .app-bar { display:flex; align-items:center; gap:12px; padding:0 16px; height:48px; background:var(--bg-1); border-bottom:1px solid var(--bd-1); flex-shrink:0; z-index:5; }
 
-  .back-btn {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 6px 12px;
-    border-radius: var(--r-md);
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--fg-3);
-    background: var(--bg-2);
-    border: 1px solid var(--bd-1);
-    cursor: pointer;
-    font-family: inherit;
-    transition: all .15s;
-    flex-shrink: 0;
-  }
-  .back-btn:hover { color: var(--fg-1); background: var(--bg-3); }
+  .back-btn { display:flex; align-items:center; gap:6px; padding:6px 12px; border-radius:var(--r-md); font-size:13px; font-weight:500; color:var(--fg-3); background:var(--bg-2); border:1px solid var(--bd-1); cursor:pointer; font-family:inherit; transition:all .15s; flex-shrink:0; }
+  .back-btn:hover { color:var(--fg-1); background:var(--bg-3); }
 
-  .app-bar-center {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    min-width: 0;
-  }
-  .app-title {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--fg-1);
-    white-space: nowrap;
-  }
-  .app-url {
-    font-size: 11px;
-    color: var(--fg-4);
-    background: var(--bg-2);
-    padding: 2px 8px;
-    border-radius: 4px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 300px;
-  }
+  .app-bar-center { flex:1; display:flex; align-items:center; gap:10px; min-width:0; }
+  .app-title { font-size:14px; font-weight:600; color:var(--fg-1); white-space:nowrap; }
+  .app-url { font-size:11px; color:var(--fg-4); background:var(--bg-2); padding:2px 8px; border-radius:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:300px; }
 
-  .app-bar-actions {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    flex-shrink: 0;
-  }
-  .bar-btn {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    padding: 6px 12px;
-    border-radius: var(--r-md);
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--fg-3);
-    background: var(--bg-2);
-    border: 1px solid var(--bd-1);
-    cursor: pointer;
-    font-family: inherit;
-    transition: all .15s;
-    text-decoration: none;
-  }
-  .bar-btn:hover { color: var(--fg-1); background: var(--bg-3); }
+  .app-bar-actions { display:flex; align-items:center; gap:6px; flex-shrink:0; }
+  .bar-btn { display:flex; align-items:center; gap:5px; padding:6px 12px; border-radius:var(--r-md); font-size:12px; font-weight:500; color:var(--fg-3); background:var(--bg-2); border:1px solid var(--bd-1); cursor:pointer; font-family:inherit; transition:all .15s; text-decoration:none; }
+  .bar-btn:hover { color:var(--fg-1); background:var(--bg-3); }
 
-  /* Loading */
-  .frame-loading {
-    position: absolute;
-    inset: 48px 0 0 0;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 14px;
-    background: var(--bg-0);
-    z-index: 4;
-    color: var(--fg-3);
-    font-size: 13px;
-  }
-  .spinner {
-    width: 32px;
-    height: 32px;
-    border: 3px solid var(--bd-2);
-    border-top-color: var(--pri);
-    border-radius: 50%;
-    animation: spin .8s linear infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
+  .frame-loading { position:absolute; inset:48px 0 0 0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; background:var(--bg-0); z-index:4; color:var(--fg-3); font-size:13px; }
+  .spinner { width:32px; height:32px; border:3px solid var(--bd-2); border-top-color:var(--pri); border-radius:50%; animation:spin .8s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
 
-  /* Iframe */
-  iframe {
-    flex: 1;
-    width: 100%;
-    border: none;
-    background: #fff;
-  }
-  iframe.hidden { visibility: hidden; position: absolute; pointer-events: none; }
+  iframe { flex:1; width:100%; border:none; background:#fff; }
+  iframe.hidden { visibility:hidden; position:absolute; pointer-events:none; }
 
-  /* Fallback */
-  .fallback {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 14px;
-    padding: 40px;
-    text-align: center;
-  }
-  .fallback-icon { font-size: 48px; }
-  .fallback-title { font-size: 18px; font-weight: 600; color: var(--fg-1); margin: 0; }
-  .fallback-sub { font-size: 13px; color: var(--fg-3); line-height: 1.6; max-width: 420px; margin: 0; }
+  .fallback { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; padding:40px; text-align:center; }
+  .fallback-icon { font-size:48px; }
+  .fallback-title { font-size:18px; font-weight:600; color:var(--fg-1); margin:0; }
+  .fallback-sub { font-size:13px; color:var(--fg-3); line-height:1.7; max-width:440px; margin:0; }
 </style>

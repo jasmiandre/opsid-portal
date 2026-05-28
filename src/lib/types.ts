@@ -50,6 +50,6 @@ export interface KcProfile {
   planOdooGb: number;
 }
 
-export type Scene = 'landing' | 'dashboard' | 'admin';
+export type Scene = 'landing' | 'dashboard' | 'admin' | 'apps' | 'drive' | 'mail' | 'calendar' | 'tasks' | 'activity';
 export type DashTab = 'dashboard' | 'profile' | 'settings';
 export type AdminTab = 'users' | 'tenants' | 'tenant-profile' | 'health' | 'audit';

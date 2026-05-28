@@ -64,26 +64,58 @@ export const PUT: RequestHandler = async ({ params, request, cookies }) => {
     }
 
     const body = await request.json();
-    const { primaryColor, logoUrl } = body;
+    const {
+      primaryColor, logoUrl,
+      planNextcloudGb, planEmailGb, planOdooGb,
+      status,
+    } = body;
 
     const updates: string[] = [];
     const values: any[] = [];
     let idx = 1;
 
-    if (primaryColor !== undefined) { updates.push(`primary_color = $${idx++}`); values.push(primaryColor); }
-    if (logoUrl !== undefined)       { updates.push(`logo_url = $${idx++}`);       values.push(logoUrl); }
+    if (primaryColor     !== undefined) { updates.push(`primary_color = $${idx++}`);       values.push(primaryColor); }
+    if (logoUrl          !== undefined) { updates.push(`logo_url = $${idx++}`);             values.push(logoUrl); }
+    if (planNextcloudGb  !== undefined) { updates.push(`plan_nextcloud_gb = $${idx++}`);    values.push(Number(planNextcloudGb)); }
+    if (planEmailGb      !== undefined) { updates.push(`plan_email_gb = $${idx++}`);        values.push(Number(planEmailGb)); }
+    if (planOdooGb       !== undefined) { updates.push(`plan_odoo_gb = $${idx++}`);         values.push(Number(planOdooGb)); }
+    if (status           !== undefined) {
+      updates.push(`status = $${idx++}`);
+      values.push(status);
+      if (status === 'suspended') {
+        updates.push(`suspended_at = NOW()`);
+      } else {
+        updates.push(`suspended_at = NULL`);
+      }
+    }
 
     if (!updates.length) return json({ ok: false, error: 'Tidak ada field yang diubah' }, { status: 400 });
 
     values.push(params.id);
-    await db.query(
-      `UPDATE tenants SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${idx}`,
-      values
-    );
+    try {
+      await db.query(
+        `UPDATE tenants SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${idx}`,
+        values
+      );
+    } catch (sqlErr: any) {
+      // Gracefully handle missing columns (suspended_at may not exist yet)
+      if (String(sqlErr).includes('suspended_at')) {
+        const updatesNoSuspend = updates.filter(u => !u.includes('suspended_at'));
+        if (updatesNoSuspend.length > 0) {
+          await db.query(
+            `UPDATE tenants SET ${updatesNoSuspend.join(', ')}, updated_at = NOW() WHERE id = $${idx}`,
+            values
+          );
+        }
+      } else {
+        throw sqlErr;
+      }
+    }
 
     await db.query(
       `INSERT INTO audit_logs (actor, action, target, metadata) VALUES ($1, $2, $3, $4)`,
-      [username || 'system', 'UPDATE_TENANT_BRANDING', String(params.id), JSON.stringify({ primaryColor, logoUrl })]
+      [username || 'system', 'UPDATE_TENANT', String(params.id),
+       JSON.stringify({ primaryColor, logoUrl, planNextcloudGb, planEmailGb, planOdooGb, status })]
     ).catch(() => null);
 
     return json({ ok: true });

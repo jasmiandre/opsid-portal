@@ -2,6 +2,7 @@
   import { auth } from '../../auth.svelte';
   import { ui } from '../../ui.svelte';
   import { onMount } from 'svelte';
+  import TenantUsersModal from '../../components/TenantUsersModal.svelte';
 
   // ── Icons ───────────────────────────────────────────────────
   const I = {
@@ -80,6 +81,14 @@
   let confirmDelete = $state<Tenant | null>(null);
   let impersonating       = $state(false);
   let impersonateTarget   = $state('');
+
+  // ── Tenant Users Modal ──────────────────────────────────────
+  let tenantUsersOpen   = $state(false);
+  let tenantUsersTarget = $state<Tenant | null>(null);
+
+  // ── DNS check inline result ─────────────────────────────────
+  interface DnsResult { domain: string; pointing: boolean; resolved_ip?: string; target_ip?: string; error?: string; }
+  let dnsResults = $state<Record<string, DnsResult>>({});
 
   // ── Tenant Profile edit (for tenant admin) ──────────────────
   let tenantEditForm  = $state({ primaryColor: '', logoUrl: '' });
@@ -322,16 +331,20 @@
 
   async function checkDns(tenant: Tenant) {
     if (!tenant.id) return;
+    const key = tenant.domain;
+    dnsResults[key] = { domain: tenant.domain, pointing: false, resolved_ip: '…' };
     try {
       const res = await fetch('/api/admin/tenant/' + tenant.id + '/dns');
       const data = await res.json();
-      if (data.pointing) {
-        alert('DNS OK\n' + data.domain + ' -> ' + data.resolved_ip);
-      } else {
-        alert('DNS belum diarahkan.\n' + data.domain + ' -> ' + (data.resolved_ip ?? 'tidak ditemukan') + '\nTarget: ' + data.target_ip);
-      }
+      dnsResults[key] = {
+        domain: data.domain ?? tenant.domain,
+        pointing: !!data.pointing,
+        resolved_ip: data.resolved_ip ?? 'tidak ditemukan',
+        target_ip: data.target_ip,
+        error: data.error,
+      };
     } catch {
-      alert('Cek DNS gagal');
+      dnsResults[key] = { domain: tenant.domain, pointing: false, error: 'Koneksi gagal' };
     }
   }
 
@@ -575,9 +588,25 @@
                   <div><div class="ts-label">Storage</div><div class="ts-val mono">{t.plan_nextcloud_gb ?? 50} GB</div></div>
                   <div><div class="ts-label">Slug</div><div class="ts-val mono">{t.slug}</div></div>
                 </div>
+                {#if dnsResults[t.domain]}
+                  {@const dr = dnsResults[t.domain]}
+                  <div class="dns-result" class:dns-ok={dr.pointing} class:dns-fail={!dr.pointing && dr.resolved_ip !== '…'}>
+                    {#if dr.resolved_ip === '…'}
+                      <span>⏳ Memeriksa DNS…</span>
+                    {:else if dr.pointing}
+                      <span>✓ DNS OK · {dr.domain} → {dr.resolved_ip}</span>
+                    {:else if dr.error}
+                      <span>✗ {dr.error}</span>
+                    {:else}
+                      <span>✗ Belum diarahkan · {dr.domain} → {dr.resolved_ip ?? '?'} (target: {dr.target_ip})</span>
+                    {/if}
+                  </div>
+                {/if}
                 <div class="tenant-actions">
                   <button class="btn btn-secondary btn-sm" onclick={() => checkDns(t)}>{@html I.globe} Cek DNS</button>
-                  <button class="btn btn-secondary btn-sm">{@html I.users} Kelola User</button>
+                  <button class="btn btn-secondary btn-sm" onclick={() => { tenantUsersTarget = t; tenantUsersOpen = true; }}>
+                    {@html I.users} Kelola User
+                  </button>
                   <button class="btn btn-danger btn-sm" style="margin-left:auto" onclick={() => confirmDelete = t}>
                     {@html I.trash} Hapus
                   </button>
@@ -692,6 +721,15 @@
           </div>
         </div>
       {/if}
+    {/if}
+
+    <!-- TenantUsersModal — rendered outside tenant grid -->
+    {#if tenantUsersOpen && tenantUsersTarget?.id}
+      <TenantUsersModal
+        tenantId={tenantUsersTarget.id}
+        tenantName={tenantUsersTarget.name}
+        onClose={() => { tenantUsersOpen = false; tenantUsersTarget = null; }}
+      />
     {/if}
 
     <!-- ═══════ TENANT PROFILE (tenant admin only) ═══════ -->
@@ -932,6 +970,11 @@
   .email-cell { font-size:12px; color:var(--fg-3); }
   .role-badge { font-size:11px; padding:2px 10px; border-radius:20px; font-weight:500; border:1px solid; }
   .action-btns { display:flex; gap:6px; justify-content:flex-end; }
+
+  /* ── DNS result ──────────────────────────────────────────── */
+  .dns-result { font-size:11px; padding:6px 12px; border-radius:var(--r-md); margin-bottom:8px; border:1px solid var(--bd-1); background:var(--bg-2); color:var(--fg-3); }
+  .dns-result.dns-ok { background:rgba(52,211,153,.08); border-color:rgba(52,211,153,.3); color:var(--ok); }
+  .dns-result.dns-fail { background:rgba(248,113,113,.08); border-color:rgba(248,113,113,.3); color:var(--danger); }
 
   /* ── Tenant cards ────────────────────────────────────────── */
   .tenant-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:14px; }

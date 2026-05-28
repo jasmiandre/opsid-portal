@@ -86,7 +86,7 @@ export const GET: RequestHandler = async ({ cookies }) => {
     }
   }
 
-  // ── Tenant admin: only their tenant's users from DB ──────────
+  // ── Tenant admin: only their tenant's users ──────────────────
   try {
     const row = (await db.query(
       `SELECT tu.role, t.id AS tenant_id, t.slug
@@ -108,16 +108,34 @@ export const GET: RequestHandler = async ({ cookies }) => {
       [row.tenant_id]
     );
 
-    const users = usersResult.rows.map(u => ({
-      username: u.username,
-      name:     u.full_name || u.username,
-      email:    u.email     || '',
-      dept:     '-',
-      role:     u.role      || 'Staff',
-      status:   u.status    || 'active',
-    }));
+    // If DB has users, return them
+    if (usersResult.rows.length > 0) {
+      const users = usersResult.rows.map(u => ({
+        username: u.username,
+        name:     u.full_name || u.username,
+        email:    u.email     || '',
+        dept:     '-',
+        role:     u.role      || 'member',
+        status:   u.status    || 'active',
+      }));
+      return json({ success: true, users });
+    }
 
-    return json({ success: true, users });
+    // Fallback: try FreeIPA group {slug}-users
+    try {
+      const cookie = await ipaLogin();
+      const groupResult = await ipaCall(cookie, 'user_find', [[]], {
+        in_group: [`${row.slug}-users`],
+        sizelimit: 200,
+        all: true,
+      });
+      if (!groupResult.error) {
+        const users = (groupResult.result?.result || []).map(mapIpaUser);
+        return json({ success: true, users, source: 'freeipa_fallback' });
+      }
+    } catch { /* fallback failed, return empty */ }
+
+    return json({ success: true, users: [] });
   } catch (err) {
     return json({ success: false, error: String(err) }, { status: 500 });
   }
