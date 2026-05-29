@@ -1,12 +1,21 @@
 <script lang="ts">
+  import { auth } from '../auth.svelte';
+
   const I = {
     arrowUR: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="11" height="11"><path d="M7 17 17 7"/><path d="M8 7h9v9"/></svg>`,
     refresh: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></svg>`,
   };
 
-  // Nextcloud is embedded via nginx which handles SSO auth (auth_request + X-Forwarded-User).
-  // nginx config: proxy_hide_header X-Frame-Options + frame-ancestors https://opsid.web.id
-  const driveUrl = 'https://files.opsid.web.id/apps/user_oidc/login/1?redirect_url=/apps/files/';
+  // Nextcloud URL strategy — mirrors MailSection logic:
+  //   opsid.web.id / *.opsid.web.id  → files.opsid.web.id via user_oidc SSO
+  //   custom-domain tenant            → https://{host}/nc/  (proxied via tenant nginx)
+  //
+  // nginx strips X-Frame-Options and sets frame-ancestors for all opsid.web.id origins,
+  // so embedding works without browser framing errors.
+  const _host   = typeof window !== 'undefined' ? window.location.hostname : 'opsid.web.id';
+  const driveUrl = _host === 'opsid.web.id' || _host.endsWith('.opsid.web.id')
+    ? 'https://files.opsid.web.id/apps/user_oidc/login/1?redirect_url=/apps/files/'
+    : `https://${_host}/nc/apps/user_oidc/login/1?redirect_url=/apps/files/`;
 
   let loading = $state(true);
   let iframe  = $state<HTMLIFrameElement | null>(null);

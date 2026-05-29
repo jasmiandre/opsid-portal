@@ -15,12 +15,23 @@
   import ActivitySection  from '$lib/sections/ActivitySection.svelte';
   import TasksSection     from '$lib/sections/TasksSection.svelte';
   import type { Scene } from '$lib/types';
+  import { page } from '$app/state';
 
   let scene: Scene = $state('landing');
 
   onMount(async () => {
     await auth.init();
-    if (auth.authenticated) scene = 'dashboard';
+    if (auth.authenticated) {
+      scene = 'dashboard';
+    } else if ((page.data as any).isTenantDomain) {
+      // Tenant workspace domains must never show the public landing page.
+      // Redirect unauthenticated users straight to Keycloak SSO login.
+      auth.login();
+      // scene stays 'landing' briefly while redirect is in-flight — the
+      // boot spinner covers it, so no flash of marketing content.
+    } else {
+      scene = 'landing';
+    }
   });
 
   // Allow components without onScene access (Dashboard, AppsSection) to trigger navigation

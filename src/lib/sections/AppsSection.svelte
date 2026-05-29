@@ -1,44 +1,34 @@
 <script lang="ts">
   import { ui } from '../ui.svelte';
-  import { auth } from '../auth.svelte';
   import { APP_URLS } from '../config';
 
-  // App cards — mail/cloud route to internal OPSID scenes, erp uses AppViewer (iframe).
-  // Keycloak is only shown to admins (it's an internal admin tool, not a user workspace app).
+  // Canonical open behavior per app — must match Dashboard and Sidebar exactly:
+  //   mail/cloud → navigateTo(scene)  → MailSection / DriveSection (iframe, same origin)
+  //   erp        → ui.openApp(...)    → AppViewer   (KC OAuth → redirects to Odoo)
   const allApps = [
     {
       key: 'erp', name: 'Odoo ERP', desc: 'CRM, inventory, akuntansi, HR, POS',
       icon: '📦', color: '#714B67',
-      action: 'app',   // opens in AppViewer iframe
-      adminOnly: false,
     },
     {
       key: 'mail', name: 'SOGo Mail', desc: 'Email, kalender, dan kontak terpusat',
       icon: '✉️', color: '#3B7FC4',
-      action: 'scene', // navigates to 'mail' scene
-      adminOnly: false,
     },
     {
       key: 'cloud', name: 'Nextcloud', desc: 'File storage, kolaborasi dokumen',
       icon: '☁️', color: '#0082C9',
-      action: 'scene', // navigates to 'drive' scene
-      adminOnly: false,
     },
   ];
 
   let apps = $derived(allApps);
 
   function openApp(app: typeof allApps[0]) {
-    if (app.action === 'scene') {
-      // Navigate to internal OPSID scene (Mail → MailSection, cloud → DriveSection)
-      const scene = app.key === 'mail' ? 'mail' : app.key === 'cloud' ? 'drive' : app.key;
-      ui.navigateTo(scene);
-    } else if (app.action === 'app') {
-      // Open in AppViewer iframe
-      ui.openApp(app.key, APP_URLS.erp, app.name);
-    } else {
-      // External tab
-      window.open(APP_URLS[app.key as keyof typeof APP_URLS] ?? '#', '_blank', 'noopener');
+    if (app.key === 'erp') {
+      ui.openApp('erp', APP_URLS.erp, 'Odoo ERP');   // AppViewer — same as Dashboard/Sidebar
+    } else if (app.key === 'mail') {
+      ui.navigateTo('mail');
+    } else if (app.key === 'cloud') {
+      ui.navigateTo('drive');
     }
   }
 </script>
@@ -70,13 +60,7 @@
           <div class="app-card-body">
             <div class="app-name">{app.name}</div>
             <div class="app-desc">{app.desc}</div>
-            {#if app.action === 'external'}
-              <div class="embed-note">↗ Dibuka di tab baru</div>
-            {:else if app.action === 'scene'}
-              <div class="embed-note" style="color:var(--ok)">✓ Tampil di dalam OPSID</div>
-            {:else}
-              <div class="embed-note" style="color:var(--ok)">✓ Embed di dalam OPSID</div>
-            {/if}
+            <div class="embed-note" style="color:var(--ok)">✓ Tampil di dalam OPSID</div>
           </div>
           <div class="app-card-foot">
             <button

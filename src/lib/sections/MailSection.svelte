@@ -6,24 +6,22 @@
     refresh: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></svg>`,
   };
 
-  // SOGo webmail URL — use explicit /Mail/ path to avoid root redirect chain that blocks onload
-  // nginx auth_request handles SSO transparently using opsid_token cookie.
-  //
-  // URL strategy:
-  //   opsid.web.id / *.opsid.web.id  → https://mail.opsid.web.id/SOGo/  (existing vhost)
-  //   custom-domain tenant            → https://{host}/SOGo/             (proxied via tenant nginx)
-  //
-  // NOTE — future portal_domain ≠ mail_domain:
-  //   Today the SOGo proxy runs under the portal domain. When per-tenant mail
-  //   domains (e.g. 1go.biz.id) are introduced, a dedicated SOGo origin will
-  //   need to be supplied from the backend (e.g. /api/me → sogoOrigin field).
-  //   Until then, using the current host is correct and backward-compatible.
-  const _sogoHost   = typeof window !== 'undefined' ? window.location.hostname : 'opsid.web.id';
-  const _isNative   = _sogoHost === 'opsid.web.id' || _sogoHost.endsWith('.opsid.web.id');
-  const SOGO_ORIGIN = _isNative ? 'https://mail.opsid.web.id' : `https://${_sogoHost}`;
+  // SOGo URL strategy:
+  //   - Main portal domain (opsid.web.id)   → dedicated mail.opsid.web.id subdomain
+  //   - Tenant subdomain / custom domain     → SOGo proxied at /SOGo/ on the same host
+  //     The tenant nginx config strips SOGo's own CSP and X-Frame-Options, so framing
+  //     from the tenant portal origin is allowed without needing extra CSP headers.
+  const _host     = typeof window !== 'undefined' ? window.location.hostname : 'opsid.web.id';
+  const sogoOrigin = _host === 'opsid.web.id'
+    ? 'https://mail.opsid.web.id'
+    : `https://${_host}`;
 
-  let username = $derived(auth.profile.username || '');
-  let sogoUrl  = $derived(`${SOGO_ORIGIN}/SOGo/so/${username}/Mail/`);
+  let username = $derived(auth.profile.username ?? '');
+  let sogoUrl  = $derived(
+    username
+      ? `${sogoOrigin}/SOGo/so/${username}/Mail/`
+      : `${sogoOrigin}/SOGo/`
+  );
 
   let loading = $state(true);
   let iframe  = $state<HTMLIFrameElement | null>(null);

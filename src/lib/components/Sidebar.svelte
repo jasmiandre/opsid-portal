@@ -30,9 +30,8 @@
   let showAdmin = $derived(auth.profile.isAdmin || auth.profile.isTenantAdmin);
   let branding  = $derived(page.data?.branding ?? { tenant_name: 'OPSID', logo_url: '', primary_color: '#5B86FF' });
 
-  // Determine active scene indicator (also when AppViewer is showing)
   function isActive(s: Scene) {
-    if (ui.currentApp) return ui.currentApp.key === 'erp' && s === 'apps';
+    if (ui.currentApp) return false; // AppViewer active — highlight handled per-button
     return scene === s;
   }
 
@@ -40,6 +39,7 @@
     ui.closeApp();
     onScene(s);
   }
+
 </script>
 
 <aside class="sidebar">
@@ -85,7 +85,7 @@
         {@html I.drive} Drive
       </button>
       <button class="nav-item" class:active={!!ui.currentApp && ui.currentApp.key === 'erp'}
-        onclick={() => ui.openApp('erp', APP_URLS.erp, 'Odoo ERP')}>
+        onclick={() => { ui.closeApp(); ui.openApp('erp', APP_URLS.erp, 'Odoo ERP'); }}>
         {@html I.erp} Odoo ERP
       </button>
     </div>

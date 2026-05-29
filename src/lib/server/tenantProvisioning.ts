@@ -446,6 +446,13 @@ async function createFreeIPAUser(slug: string, adminName: string, adminPassword:
     title:            'org-admin',
   });
   await ipaCall(cookie, 'group_add_member', [`${slug}-users`], { user: username });
+
+  // FreeIPA marks admin-set passwords as immediately expired (krbPasswordExpiration = now),
+  // which causes KC to show "Invalid username or password" on first login.
+  // Set expiry to year 2030 so the provisioned tenant admin can log in without a forced change.
+  await ipaCall(cookie, 'user_mod', [username], {
+    setattr: 'krbpasswordexpiration=20301231000000Z',
+  }).catch(() => null); // non-fatal — admin can reset manually if this fails
 }
 
 // ── Nextcloud helpers ──────────────────────────────────────────
@@ -469,12 +476,34 @@ async function createNcGroup(slug: string): Promise<void> {
   if (code !== 100 && code !== 102) throw new Error(`NC createGroup ${code}: ${message}`);
 }
 
-/** Create NC user. Idempotent: statuscode 102 = user already exists → ok. */
-async function createNcUser(username: string, password: string, email: string, displayName: string): Promise<void> {
-  const { code, message } = await ncOcs('POST', '/cloud/users', {
-    userid: username, password, email, displayName,
-  });
-  if (code !== 100 && code !== 102) throw new Error(`NC createUser ${code}: ${message}`);
+/**
+ * Provision NC LDAP user via occ (avoids creating a conflicting local DB user).
+ *
+ * FreeIPA creates the user in LDAP during earlier provisioning steps. NC's LDAP
+ * connector syncs FreeIPA users, but on a schedule. Running `ldap:check-user`
+ * forces NC to immediately look up and register the FreeIPA user in NC's account
+ * table. This ensures:
+ *   1. The NC username matches the FreeIPA uid exactly (no _NNNN suffix).
+ *   2. No local Database user is created that would block OIDC soft-auto-provisioning
+ *      (user_oidc would otherwise create admin.username_NNNN conflict copies).
+ */
+async function provisionNcLdapUser(username: string): Promise<void> {
+  const safeUser = username.replace(/[^a-zA-Z0-9._-]/g, '');
+  if (!safeUser) throw new Error('Invalid username');
+  // Run occ ldap:check-user inside the NC Docker container on files-01 (10.34.1.7).
+  // This forces NC LDAP to register the user immediately if they exist in FreeIPA LDAP.
+  const cmd = [
+    'ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10',
+    '-o', 'StrictHostKeyChecking=no', '10.34.1.7',
+    `"docker exec --user www-data nextcloud php occ ldap:check-user ${safeUser}"`,
+  ].join(' ');
+  try {
+    execSync(cmd, { timeout: 20000 });
+  } catch (e: any) {
+    // "The given user is not a recognized LDAP user" → LDAP sync hasn't run yet.
+    // This is non-fatal; NC will pick up the user on next periodic LDAP sync.
+    if (!String(e?.stdout ?? e).includes('not a recognized LDAP user')) throw e;
+  }
 }
 
 /** Set NC user quota. Idempotent (always applies). */
@@ -769,11 +798,17 @@ export async function provisionTenant(input: ProvisionInput): Promise<ProvisionR
     steps.push({ step: 'nc_group', ok: false, error: String(e) });
   }
 
-  // ── Step 10: Nextcloud user + quota + group membership ─────────
+  // ── Step 10: Nextcloud LDAP sync + quota + group membership ──────
+  // NOTE: We intentionally do NOT create a local Database user in NC.
+  // The FreeIPA user was created in step 6; here we force NC's LDAP connector
+  // to register it immediately, then set quota + group.
+  // Creating a local DB user would conflict with OIDC soft-auto-provisioning
+  // (user_oidc would create an admin.username_NNNN copy instead of reusing the
+  // LDAP user).
   try {
-    await createNcUser(adminUsername, adminPassword, adminEmail, adminName);
-    await setNcQuota(adminUsername, planNextcloudGb);
-    await addNcUserToGroup(adminUsername, slug);
+    await provisionNcLdapUser(adminUsername);           // force LDAP → NC sync
+    await setNcQuota(adminUsername, planNextcloudGb);   // non-fatal if user not in NC yet
+    await addNcUserToGroup(adminUsername, slug);        // non-fatal if user not in NC yet
     steps.push({ step: 'nc_user', ok: true });
   } catch (e: any) {
     steps.push({ step: 'nc_user', ok: false, error: String(e) });
@@ -1020,30 +1055,15 @@ export async function reprovisionTenant(input: ReprovisionInput): Promise<Reprov
     }
   }
 
-  // ── NC user + quota + group membership ────────────────────────
+  // ── NC LDAP sync + quota + group membership ───────────────────
   if (want('nc_user')) {
-    if (!newPassword) newPassword = generatePassword();
     try {
-      await createNcUser(adminUsername, newPassword, adminEmail, adminName);
+      await provisionNcLdapUser(adminUsername);        // force LDAP → NC sync
       await setNcQuota(adminUsername, planNcGb);
       await addNcUserToGroup(adminUsername, slug);
       steps.push({ step: 'nc_user', ok: true });
     } catch (e: any) {
-      const msg = String(e);
-      // statuscode 102 = user exists; quota + group still applied
-      const exists = msg.includes('102');
-      if (exists) {
-        try {
-          await setNcQuota(adminUsername, planNcGb);
-          await addNcUserToGroup(adminUsername, slug);
-          steps.push({ step: 'nc_user', ok: true });
-          newPassword = undefined; // user existed, don't expose pw
-        } catch (e2: any) {
-          steps.push({ step: 'nc_user', ok: false, error: String(e2) });
-        }
-      } else {
-        steps.push({ step: 'nc_user', ok: false, error: msg });
-      }
+      steps.push({ step: 'nc_user', ok: false, error: String(e) });
     }
   }
 
