@@ -46,6 +46,8 @@
     pic_name:      '',
     pic_email:     '',
     pic_whatsapp:  '',
+    primary_user_name:  '',
+    primary_user_email: '',
     domain_type:   'subdomain' as 'subdomain' | 'custom_domain',
     domain_value:  '',
     user_count:    '10',
@@ -69,7 +71,10 @@
     if (!form.company_name.trim()) { formError = 'Nama perusahaan wajib diisi.'; return; }
     if (!form.pic_name.trim())     { formError = 'Nama PIC wajib diisi.'; return; }
     if (!form.pic_email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.pic_email))
-      { formError = 'Email tidak valid.'; return; }
+      { formError = 'Email kontak/PIC tidak valid.'; return; }
+    if (!form.primary_user_name.trim()) { formError = 'Nama user utama wajib diisi.'; return; }
+    if (!form.primary_user_email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.primary_user_email))
+      { formError = 'Email user utama tidak valid.'; return; }
 
     submitting = true;
     try {
@@ -81,6 +86,8 @@
           pic_name:      form.pic_name,
           pic_email:     form.pic_email,
           pic_whatsapp:  form.pic_whatsapp,
+          primary_user_name:  form.primary_user_name,
+          primary_user_email: form.primary_user_email,
           domain_type:   form.domain_type,
           domain_value:  form.domain_value,
           user_count:    parseInt(form.user_count) || 10,
@@ -264,22 +271,34 @@
               <input id="ob-pic" type="text" placeholder="Budi Santoso" bind:value={form.pic_name} />
             </div>
             <div class="field">
-              <label for="ob-email">Email *</label>
+              <label for="ob-email">Email Kontak / PIC *</label>
               <input id="ob-email" type="email"
-                placeholder={form.domain_type === 'custom_domain' && form.domain_value
-                  ? `budi@${form.domain_value}`
-                  : 'budi@perusahaan.com'}
+                placeholder="sample@gmail.com"
                 bind:value={form.pic_email}
               />
-              {#if form.domain_type === 'custom_domain' && form.domain_value && form.pic_email && !form.pic_email.endsWith('@' + form.domain_value)}
-                <span style="font-size:11px;color:#f59e0b">
-                  ⚠ Gunakan email bisnis dari domain {form.domain_value} jika tersedia
-                </span>
-              {/if}
+              <span style="font-size:11px;color:#64748b">
+                Email ini digunakan untuk menerima welcome mail, kredensial login, dan instruksi DNS.
+              </span>
             </div>
             <div class="field">
               <label for="ob-wa">WhatsApp</label>
               <input id="ob-wa" type="tel" placeholder="08123456789" bind:value={form.pic_whatsapp} />
+            </div>
+
+            <div class="field">
+              <label for="ob-primary-name">Nama User Utama *</label>
+              <input id="ob-primary-name" type="text" placeholder="Jasmi Andrea" bind:value={form.primary_user_name} />
+              <span style="font-size:11px;color:#64748b">
+                Nama akun pertama yang akan menjadi admin tenant.
+              </span>
+            </div>
+
+            <div class="field">
+              <label for="ob-primary-email">Email User Utama *</label>
+              <input id="ob-primary-email" type="email" placeholder="jasmi@1go.biz.id" bind:value={form.primary_user_email} />
+              <span style="font-size:11px;color:#64748b">
+                Email ini digunakan untuk login ke Portal, Mail, Drive, Calendar, dan Odoo.
+              </span>
             </div>
             <div class="field ob-domain-field">
               <label>Domain Workspace</label>
@@ -323,8 +342,9 @@
                   bind:value={form.domain_value}
                 />
                 <span class="ob-domain-hint">
-                  Setelah tenant aktif, arahkan DNS domain Anda ke IP OPSID:
-                  <strong class="ob-domain-ip">103.134.152.140</strong>
+                  Masukkan domain workspace yang akan digunakan, contoh:
+                  <strong>workspace.1go.biz.id</strong><br/>
+                  Setelah request disetujui, kami akan mengirim instruksi DNS ke email kontak.
                 </span>
               {/if}
             </div>

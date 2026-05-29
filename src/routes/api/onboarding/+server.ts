@@ -19,12 +19,16 @@ export const POST: RequestHandler = async ({ request }) => {
   const body = await request.json().catch(() => null);
   if (!body) return json({ ok: false, error: 'Invalid JSON' }, { status: 400 });
 
-  const { company_name, pic_name, pic_email, pic_whatsapp, domain_type, domain_value, user_count, plan_tier } = body;
+  const { company_name, pic_name, pic_email, pic_whatsapp, primary_user_name, primary_user_email, domain_type, domain_value, user_count, plan_tier } = body;
 
   if (!company_name?.trim()) return json({ ok: false, error: 'Nama perusahaan wajib diisi' }, { status: 400 });
   if (!pic_name?.trim())     return json({ ok: false, error: 'Nama PIC wajib diisi' }, { status: 400 });
   if (!pic_email?.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(pic_email))
-    return json({ ok: false, error: 'Email tidak valid' }, { status: 400 });
+    return json({ ok: false, error: 'Email kontak/PIC tidak valid' }, { status: 400 });
+  if (!primary_user_name?.trim())
+    return json({ ok: false, error: 'Nama user utama wajib diisi' }, { status: 400 });
+  if (!primary_user_email?.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(primary_user_email))
+    return json({ ok: false, error: 'Email user utama tidak valid' }, { status: 400 });
 
   const safeDomainType  = ['subdomain', 'custom_domain'].includes(domain_type) ? domain_type : 'subdomain';
   const safeDomainValue = safeDomainType === 'subdomain'
@@ -34,14 +38,16 @@ export const POST: RequestHandler = async ({ request }) => {
   try {
     const result = await db.query(
       `INSERT INTO onboarding_requests
-         (company_name, pic_name, pic_email, pic_whatsapp, domain_type, domain_value, user_count, plan_tier)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         (company_name, pic_name, pic_email, pic_whatsapp, primary_user_name, primary_user_email, domain_type, domain_value, user_count, plan_tier)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        RETURNING id, created_at`,
       [
         company_name.trim().slice(0, 255),
         pic_name.trim().slice(0, 255),
         pic_email.trim().toLowerCase().slice(0, 255),
         (pic_whatsapp ?? '').trim().slice(0, 50) || null,
+        primary_user_name.trim().slice(0, 255),
+        primary_user_email.trim().toLowerCase().slice(0, 255),
         safeDomainType,
         safeDomainValue || null,
         Math.min(Math.max(parseInt(user_count) || 10, 1), 10000),

@@ -64,6 +64,7 @@ export const GET: RequestHandler = async ({ cookies }) => {
   const token   = cookies.get('opsid_token');
   const payload = token ? decodeToken(token) : null;
   const username: string = payload?.preferred_username ?? '';
+  const email: string    = payload?.email ?? '';
   const roles: string[]  = payload?.realm_access?.roles ?? [];
   const isAdmin = roles.includes('opsid-admin');
 
@@ -120,9 +121,10 @@ export const GET: RequestHandler = async ({ cookies }) => {
       `SELECT tu.role, t.id AS tenant_id, t.slug
        FROM   tenant_users tu
        JOIN   tenants t ON tu.tenant_id = t.id
-       WHERE  tu.username = $1 AND tu.status = 'active'
+       WHERE  (tu.username = $1 OR lower(tu.email) = lower($2))
+         AND  tu.status = 'active'
        LIMIT  1`,
-      [username]
+      [username, email]
     )).rows[0];
 
     if (!row) return json({ success: false, error: 'Forbidden' }, { status: 403 });
@@ -181,8 +183,11 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
   const isAdmin = roles.includes('opsid-admin');
   const isTenantAdmin = !isAdmin && await (async () => {
     const row = await db.query(
-      `SELECT 1 FROM tenant_users WHERE username=$1 AND role='org-admin' AND status='active' LIMIT 1`,
-      [payload.preferred_username]
+      `SELECT 1 FROM tenant_users
+       WHERE  (username = $1 OR lower(email) = lower($2))
+         AND  role = 'org-admin' AND status = 'active'
+       LIMIT  1`,
+      [payload.preferred_username, payload.email ?? '']
     ).then(r => r.rows[0]).catch(() => null);
     return !!row;
   })();

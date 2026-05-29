@@ -107,7 +107,9 @@ export const PUT: RequestHandler = async ({ params, request, cookies }) => {
     domain_type: (row.domain_type === 'custom_domain' ? 'custom_domain' : 'subdomain') as 'subdomain' | 'custom_domain',
     planTier: row.plan_tier,
     maxUsers: row.user_count,
-    adminName:     row.pic_name,
+    adminName:     row.primary_user_name || row.pic_name,
+    adminEmail:    row.primary_user_email || row.pic_email,
+    adminUsername: (row.primary_user_email || row.pic_email || '').split('@')[0],
     adminPassword,
     createdBy: reviewer,
   });

@@ -238,6 +238,8 @@ export interface ProvisionInput {
   maxUsers?:       number;
   planTier?:       string;
   adminName:       string;
+  adminEmail?:      string;
+  adminUsername?:   string;
   adminPassword:   string;
   createdBy?:      string;
 }
@@ -633,12 +635,14 @@ export async function provisionTenant(input: ProvisionInput): Promise<ProvisionR
     planNextcloudGb = 50, planEmailGb = 50, planOdooGb = 50,
     maxUsers, planTier = 'basic',
     adminName, adminPassword,
+    adminEmail: inputAdminEmail,
+    adminUsername: inputAdminUsername,
     createdBy = 'system',
   } = input;
 
   const steps: StepResult[] = [];
-  const adminUsername = `admin.${slug}`;
-  const adminEmail    = `admin@${domain}`;
+  const adminEmail = (inputAdminEmail || `admin@${domain}`).trim().toLowerCase();
+  const adminUsername = (inputAdminUsername || adminEmail.split('@')[0] || `admin.${slug}`).trim().toLowerCase();
 
   // ── Pre-flight: duplicate check (abort before any external calls) ──
   try {

@@ -49,10 +49,10 @@ export const GET: RequestHandler = async ({ cookies }) => {
               t.plan_odoo_gb
        FROM   tenant_users tu
        JOIN   tenants t ON tu.tenant_id = t.id
-       WHERE  tu.username = $1
+       WHERE  (tu.username = $1 OR lower(tu.email) = lower($2))
          AND  tu.status   = 'active'
        LIMIT  1`,
-      [username]
+      [username, email]
     );
 
     const row = result.rows[0] ?? null;
