@@ -6,7 +6,7 @@ import { logAudit, usernameFromCookie } from '$lib/server/audit';
 const FREEIPA_URL   = 'https://ipa.opsid.web.id/ipa';
 const FREEIPA_ADMIN = 'admin';
 const FREEIPA_PASS  = 'Sandiaman2026';
-const KC_BASE       = 'https://auth.opsid.web.id';
+const KC_BASE       = 'http://10.34.1.4:8080'; // internal — no hairpin NAT
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
@@ -39,9 +39,25 @@ async function getKcToken(): Promise<string> {
   return d.access_token;
 }
 
+function requireAdmin(cookies: any): { ok: false; res: Response } | { ok: true; username: string } {
+  const token = cookies.get('opsid_token');
+  if (!token) return { ok: false, res: json({ ok: false, error: 'Unauthorized' }, { status: 401 }) as Response };
+  try {
+    const b64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    const p   = JSON.parse(Buffer.from(b64, 'base64').toString('utf8'));
+    if (!(p?.realm_access?.roles ?? []).includes('opsid-admin'))
+      return { ok: false, res: json({ ok: false, error: 'Forbidden' }, { status: 403 }) as Response };
+    return { ok: true, username: p.preferred_username ?? 'admin' };
+  } catch {
+    return { ok: false, res: json({ ok: false, error: 'Invalid token' }, { status: 401 }) as Response };
+  }
+}
+
 /** PATCH /api/admin/tenant/[id]/users/[username] — update role, status, or reset password */
 export const PATCH: RequestHandler = async ({ params, request, cookies }) => {
-  const actor = usernameFromCookie(cookies.get('opsid_token'));
+  const authCheck = requireAdmin(cookies);
+  if (!authCheck.ok) return authCheck.res;
+  const actor = authCheck.username;
   const { action, role, newPassword } = await request.json();
 
   try {
@@ -138,7 +154,9 @@ export const PATCH: RequestHandler = async ({ params, request, cookies }) => {
 
 /** DELETE /api/admin/tenant/[id]/users/[username] — remove user from tenant */
 export const DELETE: RequestHandler = async ({ params, cookies }) => {
-  const actor = usernameFromCookie(cookies.get('opsid_token'));
+  const authCheck = requireAdmin(cookies);
+  if (!authCheck.ok) return authCheck.res;
+  const actor = authCheck.username;
 
   try {
     const tenantResult = await db.query(

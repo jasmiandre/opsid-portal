@@ -7,7 +7,7 @@ import { logActivity } from '$lib/server/activity';
 const FREEIPA_URL   = 'https://ipa.opsid.web.id/ipa';
 const FREEIPA_ADMIN = 'admin';
 const FREEIPA_PASS  = 'Sandiaman2026';
-const KC_BASE       = 'https://auth.opsid.web.id';
+const KC_BASE       = 'http://10.34.1.4:8080'; // internal IP — no hairpin NAT
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
@@ -55,6 +55,20 @@ async function findKcUserId(kcToken: string, username: string): Promise<string |
   return users[0]?.id ?? null;
 }
 
+function requireAdminAuth(cookies: any): { ok: false; res: Response } | { ok: true; actor: string } {
+  const token = cookies.get('opsid_token');
+  if (!token) return { ok: false, res: json({ ok: false, error: 'Unauthorized' }, { status: 401 }) as Response };
+  try {
+    const b64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    const p   = JSON.parse(Buffer.from(b64, 'base64').toString('utf8'));
+    if (!(p?.realm_access?.roles ?? []).includes('opsid-admin'))
+      return { ok: false, res: json({ ok: false, error: 'Forbidden — hanya superadmin' }, { status: 403 }) as Response };
+    return { ok: true, actor: p.preferred_username ?? 'admin' };
+  } catch {
+    return { ok: false, res: json({ ok: false, error: 'Invalid token' }, { status: 401 }) as Response };
+  }
+}
+
 // ── PATCH ────────────────────────────────────────────────────
 // Body options:
 //   { name, email, dept, role }            — edit user details
@@ -65,7 +79,9 @@ export const PATCH: RequestHandler = async ({ params, request, cookies }) => {
   const username = params.username;
   if (!username) return json({ success: false, error: 'Username diperlukan' }, { status: 400 });
 
-  const actor = usernameFromCookie(cookies.get('opsid_token'));
+  const authCheck = requireAdminAuth(cookies);
+  if (!authCheck.ok) return authCheck.res;
+  const actor = authCheck.actor;
   const body  = await request.json();
   const { action } = body;
 
@@ -104,7 +120,7 @@ export const PATCH: RequestHandler = async ({ params, request, cookies }) => {
       await logActivity(actor, 'SUSPEND_USER', username);
 
       return json({
-        success: true,
+        ok: true, success: true,
         message:  `User ${username} di-suspend`,
         warnings: errors.length ? errors : undefined,
       });
@@ -148,7 +164,7 @@ export const PATCH: RequestHandler = async ({ params, request, cookies }) => {
       await logActivity(actor, 'ACTIVATE_USER', username);
 
       return json({
-        success: true,
+        ok: true, success: true,
         message:  `User ${username} diaktifkan kembali`,
         warnings: errors.length ? errors : undefined,
       });
@@ -157,8 +173,46 @@ export const PATCH: RequestHandler = async ({ params, request, cookies }) => {
     }
   }
 
+  // ── reset_password ────────────────────────────────────────────
+  if (action === 'reset_password') {
+    const { newPassword } = body;
+    if (!newPassword || newPassword.length < 8) {
+      return json({ ok: false, error: 'Password minimal 8 karakter' }, { status: 400 });
+    }
+    const errors: string[] = [];
+
+    // 1. FreeIPA
+    try {
+      const cookie = await ipaLogin();
+      const r = await ipaCall(cookie, 'user_mod', [username], { userpassword: newPassword });
+      if (r.error) errors.push(`FreeIPA: ${r.error.message}`);
+    } catch (e) { errors.push(`FreeIPA: ${String(e)}`); }
+
+    // 2. Keycloak
+    try {
+      const kcToken = await getKcToken();
+      const userId  = await findKcUserId(kcToken, username);
+      if (userId) {
+        await fetch(`${KC_BASE}/admin/realms/opsid-internal/users/${userId}/reset-password`, {
+          method: 'PUT',
+          headers: { 'Authorization': `Bearer ${kcToken}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'password', value: newPassword, temporary: false }),
+        });
+      }
+    } catch (e) { errors.push(`KC: ${String(e)}`); }
+
+    await logAudit(actor, 'RESET_PASSWORD', username, { errors });
+    return json({
+      ok: true, success: true,
+      message:  `Password ${username} berhasil direset`,
+      warnings: errors.length ? errors : undefined,
+    });
+  }
+
   // ── edit details ─────────────────────────────────────────────
-  const { name, email, dept, role } = body;
+  // Accept both 'fullname' (sent by AdminUsers.svelte) and 'name' for backward compat
+  const { fullname, name: nameField, email, dept, role } = body;
+  const name = fullname || nameField;
 
   try {
     const errors: string[] = [];
@@ -224,7 +278,7 @@ export const PATCH: RequestHandler = async ({ params, request, cookies }) => {
     await logActivity(actor, 'EDIT_USER', username);
 
     return json({
-      success: true,
+      ok: true, success: true,
       message:  `User ${username} berhasil diupdate`,
       warnings: errors.length ? errors : undefined,
     });
@@ -239,7 +293,9 @@ export const DELETE: RequestHandler = async ({ params, cookies }) => {
   const username = params.username;
   if (!username) return json({ success: false, error: 'Username diperlukan' }, { status: 400 });
 
-  const actor = usernameFromCookie(cookies.get('opsid_token'));
+  const authCheck = requireAdminAuth(cookies);
+  if (!authCheck.ok) return authCheck.res;
+  const actor = authCheck.actor;
 
   try {
     const errors: string[] = [];
@@ -270,7 +326,7 @@ export const DELETE: RequestHandler = async ({ params, cookies }) => {
     await logActivity(actor, 'DELETE_USER', username);
 
     return json({
-      success: true,
+      ok: true, success: true,
       message:  `User ${username} dihapus`,
       warnings: errors.length ? errors : undefined,
     });

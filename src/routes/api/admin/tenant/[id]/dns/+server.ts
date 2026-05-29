@@ -7,7 +7,20 @@ import { promisify } from 'util';
 const lookup = promisify(dns.lookup);
 const TARGET_IP = '103.134.152.140';
 
-export const GET: RequestHandler = async ({ params }) => {
+function decodeToken(token: string): any {
+  try {
+    const b64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    return JSON.parse(Buffer.from(b64, 'base64').toString('utf8'));
+  } catch { return null; }
+}
+
+export const GET: RequestHandler = async ({ params, cookies }) => {
+  // Auth: opsid-admin only
+  const token = cookies.get('opsid_token');
+  if (!token) return json({ ok: false, error: 'Unauthorized' }, { status: 401 });
+  if (!(decodeToken(token)?.realm_access?.roles ?? []).includes('opsid-admin'))
+    return json({ ok: false, error: 'Forbidden' }, { status: 403 });
+
   try {
     const result = await db.query(`SELECT domain FROM tenants WHERE id = $1`, [params.id]);
     if (!result.rows.length) return json({ error: 'Tenant tidak ditemukan' }, { status: 404 });

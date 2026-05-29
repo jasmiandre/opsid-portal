@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 
-const ODOO_URL  = 'https://erp.opsid.web.id';
+const ODOO_URL  = 'http://10.34.1.8:8069';
 const ODOO_DB   = 'odoo_db';
 const ODOO_USER = 'admin';
 const ODOO_PASS = 'Sandiaman2026';

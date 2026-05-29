@@ -28,9 +28,36 @@ async function ipaCall(cookie: string, method: string, args: any[], kwargs: any 
   return res.json();
 }
 
+function requireAdminOrOwner(cookies: any, tenantId: string): Promise<{ ok: false; res: Response } | { ok: true; username: string; isAdmin: boolean }> {
+  return (async () => {
+    const token = cookies.get('opsid_token');
+    if (!token) return { ok: false as const, res: json({ ok: false, error: 'Unauthorized' }, { status: 401 }) as Response };
+    try {
+      const b64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+      const p   = JSON.parse(Buffer.from(b64, 'base64').toString('utf8'));
+      const username: string = p.preferred_username ?? '';
+      if (!username) return { ok: false as const, res: json({ ok: false, error: 'Unauthorized' }, { status: 401 }) as Response };
+      const isAdmin: boolean = (p.realm_access?.roles ?? []).includes('opsid-admin');
+      if (!isAdmin) {
+        // Must be org-admin of this specific tenant
+        const own = await db.query(
+          `SELECT 1 FROM tenant_users WHERE username=$1 AND tenant_id=$2 AND role='org-admin' AND status='active'`,
+          [username, tenantId]
+        );
+        if (!own.rows.length) return { ok: false as const, res: json({ ok: false, error: 'Forbidden' }, { status: 403 }) as Response };
+      }
+      return { ok: true as const, username, isAdmin };
+    } catch {
+      return { ok: false as const, res: json({ ok: false, error: 'Invalid token' }, { status: 401 }) as Response };
+    }
+  })();
+}
+
 /** GET /api/admin/tenant/[id]/users — list users for a tenant */
 export const GET: RequestHandler = async ({ params, cookies }) => {
-  const actor = usernameFromCookie(cookies.get('opsid_token'));
+  const auth = await requireAdminOrOwner(cookies, params.id);
+  if (!auth.ok) return auth.res;
+  const actor = auth.username;
 
   try {
     const tenantResult = await db.query(
@@ -40,10 +67,10 @@ export const GET: RequestHandler = async ({ params, cookies }) => {
     const tenant = tenantResult.rows[0];
 
     const usersResult = await db.query(
-      `SELECT username, email, full_name, role, is_admin, status, created_at
+      `SELECT username, email, full_name, role, is_admin, status
        FROM tenant_users
        WHERE tenant_id = $1
-       ORDER BY created_at DESC`,
+       ORDER BY id ASC`,
       [tenant.id]
     );
 
@@ -78,7 +105,6 @@ export const GET: RequestHandler = async ({ params, cookies }) => {
       status:    u.status || 'active',
       dept:      ipaMap[u.username]?.dept ?? '-',
       ipaLocked: ipaMap[u.username]?.locked ?? false,
-      createdAt: u.created_at,
     }));
 
     return json({ ok: true, tenant: { id: tenant.id, name: tenant.name, slug: tenant.slug }, users });
@@ -89,7 +115,9 @@ export const GET: RequestHandler = async ({ params, cookies }) => {
 
 /** POST /api/admin/tenant/[id]/users — add a user to a tenant */
 export const POST: RequestHandler = async ({ params, request, cookies }) => {
-  const actor = usernameFromCookie(cookies.get('opsid_token'));
+  const auth = await requireAdminOrOwner(cookies, params.id);
+  if (!auth.ok) return auth.res;
+  const actor = auth.username;
   const { username, fullName, email, password, role = 'member' } = await request.json();
 
   if (!username || !fullName || !email || !password) {

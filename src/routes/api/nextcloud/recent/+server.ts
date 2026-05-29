@@ -1,12 +1,14 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+import { execSync } from 'child_process';
+import db from '$lib/db';
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
-const NC_BASE  = 'https://files.opsid.web.id';
-const NC_ADMIN = 'admin';
-const NC_PASS  = 'VqscHz0m1mrJWvjWofR81Dupuft3VLrrPRPzdkDC6Os9fDYEWIpLA5lbOcNv5p753jRJEnDN';
-const NC_AUTH  = 'Basic ' + Buffer.from(`${NC_ADMIN}:${NC_PASS}`).toString('base64');
+const NC_BASE   = 'http://files.opsid.web.id:8080';
+const NC_PUBLIC = 'https://files.opsid.web.id';
+
+// ── helpers ──────────────────────────────────────────────────
 
 function decodeToken(token: string): any {
   try {
@@ -15,95 +17,172 @@ function decodeToken(token: string): any {
   } catch { return null; }
 }
 
-function getFileType(name: string, contenttype: string): string {
+function fileType(name: string): string {
   const ext = name.split('.').pop()?.toLowerCase() ?? '';
-  if (['docx', 'doc'].includes(ext)) return 'docx';
-  if (['xlsx', 'xls', 'csv'].includes(ext)) return 'xlsx';
-  if (['pdf'].includes(ext)) return 'pdf';
-  if (['pptx', 'ppt'].includes(ext)) return 'pptx';
+  if (['docx', 'doc'].includes(ext))          return 'docx';
+  if (['xlsx', 'xls', 'csv'].includes(ext))   return 'xlsx';
+  if (['pdf'].includes(ext))                   return 'pdf';
+  if (['pptx', 'ppt'].includes(ext))           return 'pptx';
   if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)) return 'image';
-  if (contenttype.includes('folder') || ext === '') return 'folder';
+  if (['mp4', 'mov', 'avi', 'webm'].includes(ext)) return 'video';
+  if (['md', 'txt'].includes(ext))             return 'text';
+  if (['odp', 'odg', 'odt', 'ods'].includes(ext)) return 'document';
   return 'file';
 }
 
-function relativeTime(modified: string): string {
-  if (!modified) return '';
+function relativeTime(iso: string): string {
+  if (!iso) return '';
   try {
-    const d     = new Date(modified);
-    const diff  = (Date.now() - d.getTime()) / 1000;
-    if (diff < 60)  return 'Baru saja';
-    if (diff < 3600) return Math.round(diff / 60) + ' mnt lalu';
-    if (diff < 86400) return Math.round(diff / 3600) + ' jam lalu';
+    const diff = (Date.now() - new Date(iso).getTime()) / 1000;
+    if (diff < 60)     return 'Baru saja';
+    if (diff < 3600)   return Math.round(diff / 60)   + ' mnt lalu';
+    if (diff < 86400)  return Math.round(diff / 3600)  + ' jam lalu';
     if (diff < 172800) return 'Kemarin';
-    return d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
+    return new Date(iso).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
   } catch { return ''; }
 }
 
-export const GET: RequestHandler = async ({ cookies }) => {
-  const token    = cookies.get('opsid_token');
-  const payload  = token ? decodeToken(token) : null;
-  const username = payload?.preferred_username ?? '';
+// ── app password management ───────────────────────────────────
 
-  if (!username) return json({ ok: false, files: [] });
-
-  // Use PROPFIND to list root directory and pick recent items
-  const davPath = `/remote.php/dav/files/${encodeURIComponent(username)}/`;
-
+async function getAppPassword(username: string): Promise<string | null> {
+  // 1. Check portal DB cache (generated previously)
   try {
-    const res = await fetch(`${NC_BASE}${davPath}`, {
-      method:  'PROPFIND',
-      headers: {
-        'Authorization': NC_AUTH,
-        'Depth':         '1',
-        'Content-Type':  'application/xml',
-      },
-      body: `<?xml version="1.0" encoding="UTF-8"?>
-<d:propfind xmlns:d="DAV:">
-  <d:prop>
-    <d:displayname/>
-    <d:getcontenttype/>
-    <d:getcontentlength/>
-    <d:getlastmodified/>
-    <d:resourcetype/>
-  </d:prop>
-</d:propfind>`,
-    });
+    const row = await db.query(
+      'SELECT nc_app_password FROM user_tokens WHERE username = $1',
+      [username]
+    );
+    if (row.rows[0]?.nc_app_password) return row.rows[0].nc_app_password;
+  } catch (e) {
+    console.error('[NC] DB lookup error:', String(e).slice(0, 120));
+    return null;
+  }
 
-    if (!res.ok) {
-      if (res.status === 404) return json({ ok: true, files: [] });
-      return json({ ok: false, files: [], error: `Nextcloud ${res.status}` });
+  // 2. Generate once via official Nextcloud occ CLI (SSH to collab-01)
+  console.log(`[NC] Generating app password for user: ${username}`);
+  try {
+    const safeUser = username.replace(/[^a-zA-Z0-9._-]/g, '');
+    if (!safeUser) return null;
+
+    const cmd = [
+      'ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10',
+      '-o', 'StrictHostKeyChecking=no',
+      'collab-01',
+      `docker exec -u 33 nextcloud php /var/www/html/occ user:add-app-password '${safeUser}' --no-interaction 2>&1`,
+    ].join(' ');
+
+    const output = execSync(cmd, { timeout: 20000 }).toString();
+
+    // Parse line after "app password:"
+    const lines  = output.split('\n').map(l => l.trim());
+    const idx    = lines.findIndex(l => l === 'app password:');
+    const passwd = idx !== -1 ? lines[idx + 1] : '';
+    if (!passwd) {
+      console.error('[NC] occ produced no password for', username);
+      return null;
     }
 
-    const xml = await res.text();
-    const responses = xml.split('<d:response>').slice(1);
+    // 3. Persist in portal DB — never written to logs
+    await db.query(
+      `INSERT INTO user_tokens (username, nc_app_password, updated_at)
+       VALUES ($1, $2, NOW())
+       ON CONFLICT (username) DO UPDATE
+         SET nc_app_password = EXCLUDED.nc_app_password, updated_at = NOW()`,
+      [username, passwd]
+    );
+    console.log(`[NC] App password stored for: ${username}`);
+    return passwd;
+  } catch (e: any) {
+    console.error('[NC] occ generation failed:', String(e?.message ?? e).slice(0, 200));
+    return null;
+  }
+}
 
-    const items = responses.map(r => {
-      const href        = r.match(/<d:href>(.*?)<\/d:href>/)?.[1] ?? '';
-      const displayname = r.match(/<d:displayname>(.*?)<\/d:displayname>/)?.[1] ?? '';
-      const contenttype = r.match(/<d:getcontenttype>(.*?)<\/d:getcontenttype>/)?.[1] ?? '';
-      const size        = parseInt(r.match(/<d:getcontentlength>(.*?)<\/d:getcontentlength>/)?.[1] ?? '0', 10);
-      const modified    = r.match(/<d:getlastmodified>(.*?)<\/d:getlastmodified>/)?.[1] ?? '';
-      const isDir       = r.includes('<d:collection/>') || r.includes('<d:collection />');
-      const name        = displayname || decodeURIComponent(href.split('/').filter(Boolean).pop() ?? '');
-      return { name, href: NC_BASE + href, contenttype, size, modified, isDir };
-    })
-    .filter(i => i.name && i.name !== '.' && !i.isDir) // files only
-    .sort((a, b) => {
-      // Sort by last modified descending
-      return new Date(b.modified).getTime() - new Date(a.modified).getTime();
-    })
-    .slice(0, 6)
-    .map(i => ({
-      name:    i.name,
-      href:    i.href,
-      type:    getFileType(i.name, i.contenttype),
-      size:    i.size,
-      time:    relativeTime(i.modified),
-      modified: i.modified,
-    }));
+// ── request handler ───────────────────────────────────────────
 
-    return json({ ok: true, files: items });
-  } catch (e) {
-    return json({ ok: false, files: [], error: String(e) });
+export const GET: RequestHandler = async ({ cookies }) => {
+  const token = cookies.get('opsid_token');
+  if (!token) return json({ ok: false, files: [], error: 'no_session' });
+
+  const payload  = decodeToken(token);
+  const username = payload?.preferred_username ?? '';
+  if (!username) return json({ ok: false, files: [], error: 'no_username' });
+
+  const appPassword = await getAppPassword(username);
+  if (!appPassword) {
+    return json({ ok: false, files: [], error: 'nextcloud_unavailable' });
+  }
+
+  // Basic auth header — never logged
+  const auth = 'Basic ' + Buffer.from(`${username}:${appPassword}`).toString('base64');
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10000);
+
+  try {
+    const res = await fetch(
+      `${NC_BASE}/ocs/v2.php/apps/activity/api/v2/activity` +
+      `?object_type=files&sort=desc&limit=30&format=json`,
+      {
+        headers: { 'Authorization': auth, 'OCS-APIREQUEST': 'true' },
+        signal: controller.signal,
+      }
+    );
+    clearTimeout(timer);
+
+    // 401 means app password was revoked in Nextcloud — purge cache
+    if (res.status === 401) {
+      await db.query('DELETE FROM user_tokens WHERE username = $1', [username]).catch(() => {});
+      return json({ ok: false, files: [], error: 'session_expired' });
+    }
+
+    if (!res.ok) {
+      return json({ ok: false, files: [], error: `nc_${res.status}` });
+    }
+
+    const data: any      = await res.json();
+    const activities: any[] = data?.ocs?.data ?? [];
+
+    // Deduplicate by file ID, skip deleted, take 6 most recent
+    const seen = new Map<number, object>();
+    for (const a of activities) {
+      if (a.object_type !== 'files' || a.type === 'file_deleted') continue;
+      const fid: number = a.object_id;
+      if (!fid || seen.has(fid)) continue;
+
+      const rich  = Array.isArray(a.subject_rich) ? a.subject_rich : [];
+      const finfo = (rich.length > 1 && rich[1]?.file) ? rich[1].file : {};
+
+      const name = finfo.name
+        ?? (a.object_name ?? '').replace(/^\//, '').split('/').pop()
+        ?? '';
+      if (!name) continue;
+
+      // Wrap through user_oidc OIDC endpoint (provider 1 = Keycloak OPSID).
+      // Same mechanism as DriveSection: browser hits /apps/user_oidc/login/1,
+      // KC sees existing session → issues token → Nextcloud creates session → redirects to file.
+      // Direct /f/{id} links skip OIDC flow and land on Nextcloud's own login page.
+      const fileUrl = `/f/${fid}`;
+      const href = `${NC_PUBLIC}/apps/user_oidc/login/1?redirect_url=${encodeURIComponent(fileUrl)}`;
+
+      seen.set(fid, {
+        name,
+        href,
+        type:     fileType(name),
+        time:     relativeTime(a.datetime ?? ''),
+        modified: a.datetime ?? '',
+      });
+    }
+
+    const files = [...seen.values()].slice(0, 6);
+    console.log(`[NC] Recent files (${username}): ${files.length} items`);
+    return json({ ok: true, files });
+
+  } catch (e: any) {
+    clearTimeout(timer);
+    if (e?.name === 'AbortError') {
+      return json({ ok: false, files: [], error: 'timeout' });
+    }
+    console.error('[NC] Fetch error:', e?.message ?? String(e));
+    return json({ ok: false, files: [], error: 'fetch_error' });
   }
 };

@@ -9,6 +9,8 @@ declare global {
 				primary_color: string;
 				logo_url: string;
 				tenant_name: string;
+				tenant_domain?: string;
+				tenant_id?: number;
 			};
 		}
 		// interface PageData {}

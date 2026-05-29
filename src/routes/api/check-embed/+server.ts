@@ -1,11 +1,17 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-
-// In-memory cache: hostname → { embeddable, ts }
-const cache = new Map<string, { embeddable: boolean; reason: string; ts: number }>();
-const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+// Hardcoded whitelist — all *.opsid.web.id subdomains are OPSID-owned services.
+// We do NOT make a network request to check headers because the portal server (app-01)
+// cannot reach public *.opsid.web.id URLs due to hairpin NAT (130s timeout).
+// The administrator is responsible for ensuring these services are safe to embed.
+const OPSID_HOSTS = new Set([
+  'mail.opsid.web.id',
+  'files.opsid.web.id',
+  'erp.opsid.web.id',
+  'auth.opsid.web.id',
+  'ipa.opsid.web.id',
+]);
 
 export const GET: RequestHandler = async ({ url }) => {
   const target = url.searchParams.get('url');
@@ -15,15 +21,17 @@ export const GET: RequestHandler = async ({ url }) => {
   try { hostname = new URL(target).hostname; }
   catch { return json({ embeddable: false, reason: 'invalid_url' }); }
 
-  // Check cache
-  const cached = cache.get(hostname);
-  if (cached && Date.now() - cached.ts < CACHE_TTL) {
-    return json({ embeddable: cached.embeddable, reason: cached.reason });
+  // All OPSID-internal subdomains are treated as embeddable.
+  // SOGo has no X-Frame-Options; Odoo is accessed via KC auth URL (not /web/login).
+  // Nextcloud has SAMEORIGIN but is used via WebDAV file browser, not iframe.
+  if (OPSID_HOSTS.has(hostname) || hostname.endsWith('.opsid.web.id')) {
+    return json({ embeddable: true, reason: 'opsid_internal' });
   }
 
+  // For unknown external hosts: try a quick HEAD request with a 4s timeout.
+  // Fall back to embeddable: false on timeout/error.
   const controller = new AbortController();
   const tid = setTimeout(() => controller.abort(), 4000);
-
   try {
     const res = await fetch(target, {
       method: 'HEAD',
@@ -35,32 +43,19 @@ export const GET: RequestHandler = async ({ url }) => {
 
     const xfo = (res.headers.get('x-frame-options') ?? '').toUpperCase();
     const csp = res.headers.get('content-security-policy') ?? '';
-
-    // X-Frame-Options: DENY or SAMEORIGIN = blocked
     const xfoBlocked = xfo === 'DENY' || xfo === 'SAMEORIGIN';
-
-    // CSP frame-ancestors without '*' or the portal domain = blocked
     let cspBlocked = false;
     if (csp.includes('frame-ancestors')) {
       const fa = csp.split(';').find(d => d.trim().startsWith('frame-ancestors'));
-      if (fa && !fa.includes('*') && !fa.includes('opsid.web.id')) {
-        cspBlocked = true;
-      }
+      if (fa && !fa.includes('*') && !fa.includes('opsid.web.id')) cspBlocked = true;
     }
-
     const blocked = xfoBlocked || cspBlocked;
-    const reason = blocked
-      ? (xfoBlocked ? `X-Frame-Options: ${xfo}` : 'CSP frame-ancestors')
-      : 'ok';
-
-    cache.set(hostname, { embeddable: !blocked, reason, ts: Date.now() });
-    return json({ embeddable: !blocked, reason });
-
+    return json({
+      embeddable: !blocked,
+      reason: blocked ? (xfoBlocked ? `X-Frame-Options: ${xfo}` : 'CSP frame-ancestors') : 'ok',
+    });
   } catch (err: any) {
     clearTimeout(tid);
-    const reason = err?.name === 'AbortError' ? 'timeout' : 'fetch_failed';
-    // On error, assume not embeddable to be safe
-    cache.set(hostname, { embeddable: false, reason, ts: Date.now() });
-    return json({ embeddable: false, reason });
+    return json({ embeddable: false, reason: err?.name === 'AbortError' ? 'timeout' : 'fetch_failed' });
   }
 };

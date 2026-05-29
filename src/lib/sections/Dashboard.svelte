@@ -60,11 +60,22 @@
   function dateStr() {
     return new Date().toLocaleDateString('id-ID', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
   }
+  // SOGo URL helpers — tenant-aware origin selection.
+  // Same logic as MailSection/CalendarSection: use portal domain for custom tenants,
+  // mail.opsid.web.id for opsid-native domains.
+  // NOTE — future portal_domain ≠ mail_domain: when per-tenant mail domains are
+  // introduced, these helpers must read sogoOrigin from auth.profile (supplied by /api/me).
+  function _sogoOrigin(): string {
+    const host = typeof window !== 'undefined' ? window.location.hostname : 'opsid.web.id';
+    return (host === 'opsid.web.id' || host.endsWith('.opsid.web.id'))
+      ? 'https://mail.opsid.web.id'
+      : `https://${host}`;
+  }
   function sogoCalendarUrl() {
-    return `https://mail.opsid.web.id/SOGo/so/${auth.profile.username}/Calendar/view#!/calendar/week/`;
+    return `${_sogoOrigin()}/SOGo/so/${auth.profile.username}/Calendar/view#!/calendar/week/`;
   }
   function sogoComposeUrl() {
-    return `https://mail.opsid.web.id/SOGo/so/${auth.profile.username}/Mail/compose`;
+    return `${_sogoOrigin()}/SOGo/so/${auth.profile.username}/Mail/compose`;
   }
   function fileColor(t: string) {
     return t==='docx'?'var(--pri)':t==='pdf'?'var(--danger)':t==='xlsx'?'var(--ok)':t==='folder'?'var(--warn)':'var(--fg-3)';
@@ -204,7 +215,7 @@
 
       <!-- Notification bell -->
       <div class="notif-dropdown" style="position:relative">
-        <button class="btn-icon" title="{notifCount} notifikasi" onclick={() => { notifOpen = !notifOpen; if (notifOpen) ui.refreshNotifications(); }}>
+        <button class="btn-icon" title="{notifCount} notifikasi" onclick={() => { notifOpen = !notifOpen; if (notifOpen) { ui.refreshNotifications(); ui.notifCount = 0; } }}>
           {@html I.bell}
           {#if notifCount > 0}<span class="notif-dot">{notifCount > 9 ? '9+' : notifCount}</span>{/if}
         </button>
@@ -266,9 +277,9 @@
         <div class="page-h1">{greeting()}, {auth.profile.firstName}.</div>
         <div class="page-sub">{apps.length} aplikasi terhubung · {inboxData.unseen} email belum dibaca · {loading ? '…' : agenda.length} jadwal hari ini</div>
       </div>
-      <a class="btn btn-primary btn-sm" href={sogoComposeUrl()} target="_blank" rel="noopener">
-        {@html I.mail} Tulis Email
-      </a>
+      <button class="btn btn-primary btn-sm" onclick={() => ui.navigateTo('mail')}>
+        {@html I.mail} Buka Mail
+      </button>
     </div>
 
     <!-- Stat cards -->
@@ -314,20 +325,6 @@
         </div>
       </div>
 
-      <div class="stat-card">
-        <div class="stat-card-head">
-          <span class="stat-label">Penyimpanan</span>
-          <span class="stat-icon" style="background:var(--ok-soft);color:var(--ok)">{@html I.db}</span>
-        </div>
-        {#if storageUser}
-          <div class="stat-val" style="color:{storageColor(storagePct)}">{storagePct}%</div>
-          <div class="stat-sub">{auth.profile.username} · {storageUser.quota} GB kuota</div>
-          <div class="prog-bar"><div class="prog-fill" style="width:{storagePct}%;background:{storageColor(storagePct)}"></div></div>
-        {:else}
-          <div class="stat-val">–</div>
-          <div class="stat-sub">{loading ? 'Memuat…' : 'Tidak ada data'}</div>
-        {/if}
-      </div>
     </div>
 
     <!-- Quick access -->
@@ -335,7 +332,11 @@
       <div class="panel-head"><span class="panel-title">Akses Cepat</span></div>
       <div class="quick-row">
         {#each apps as a (a.key)}
-          <button class="quick-tile" onclick={() => ui.openApp(a.key, a.url, a.name)}>
+          <button class="quick-tile" onclick={() => {
+            if (a.key === 'mail')  ui.navigateTo('mail');
+            else if (a.key === 'cloud') ui.navigateTo('drive');
+            else ui.openApp(a.key, a.url, a.name);
+          }}>
             <span class="tile tile-{a.key}" style="width:52px;height:52px;border-radius:14px">{@html (I as any)[a.ic]}</span>
             <span class="quick-label">{a.name}</span>
           </button>
@@ -348,7 +349,7 @@
       <div class="panel">
         <div class="panel-head">
           <span class="panel-title">Email Terbaru</span>
-          <a class="btn btn-ghost btn-sm" href={APP_URLS.mail} target="_blank" rel="noopener">Buka SOGo {@html I.arrowR}</a>
+          <button class="btn btn-ghost btn-sm" onclick={() => ui.navigateTo('mail')}>Buka Mail {@html I.arrowR}</button>
         </div>
         <div class="inbox">
           {#if loading}
@@ -357,14 +358,14 @@
             <div class="empty-state">Inbox kosong</div>
           {:else}
             {#each inboxMessages as m}
-              <a class="inbox-row" class:unread={m.unread} href={APP_URLS.mail} target="_blank" rel="noopener">
+              <button class="inbox-row" class:unread={m.unread} onclick={() => ui.navigateTo('mail')}>
                 <span class="unread-dot" class:visible={m.unread}></span>
                 <div style="flex:1;min-width:0">
                   <div class="from">{m.from.split(' ').slice(0,3).join(' ')}</div>
                   <div class="subj">{#if m.unread}<b>{m.subj}</b>{:else}{m.subj}{/if}</div>
                 </div>
                 <span class="time mono">{m.time}</span>
-              </a>
+              </button>
             {/each}
           {/if}
         </div>
@@ -373,7 +374,7 @@
       <div class="panel">
         <div class="panel-head">
           <span class="panel-title">Jadwal Hari Ini</span>
-          <a class="btn btn-ghost btn-sm" href={sogoCalendarUrl()} target="_blank" rel="noopener">{@html I.cal} Kalender</a>
+          <button class="btn btn-ghost btn-sm" onclick={() => ui.navigateTo('calendar')}>{@html I.cal} Kalender</button>
         </div>
         <div class="agenda">
           {#if loading}
@@ -382,17 +383,17 @@
             <div class="empty-state">Tidak ada jadwal hari ini</div>
           {:else}
             {#each agenda as a (a.time)}
-              <a class="agenda-row" href={sogoCalendarUrl()} target="_blank" rel="noopener">
+              <button class="agenda-row" onclick={() => ui.navigateTo('calendar')}>
                 <span class="agenda-time">{a.time}</span>
                 <span class="agenda-bar" style="background:{a.color}"></span>
                 <div>
                   <div class="agenda-title">{a.title}</div>
                   <div class="agenda-meta">{a.meta}</div>
                 </div>
-              </a>
+              </button>
             {/each}
           {/if}
-          <div class="agenda-footer mono">CalDAV · mail.opsid.web.id</div>
+          <div class="agenda-footer mono">CalDAV · {_sogoOrigin().replace('https://', '')}</div>
         </div>
       </div>
     </div>
@@ -401,7 +402,7 @@
     <div class="panel">
       <div class="panel-head">
         <span class="panel-title">File Terbaru — Nextcloud</span>
-        <button class="btn btn-ghost btn-sm" onclick={() => ui.openApp('cloud', APP_URLS.cloud, 'Nextcloud')}>
+        <button class="btn btn-ghost btn-sm" onclick={() => ui.navigateTo('drive')}>
           Lihat semua {@html I.arrowR}
         </button>
       </div>
@@ -409,7 +410,7 @@
         {#if filesLoading}
           <div class="empty-state">Memuat file dari Nextcloud…</div>
         {:else if recentFiles.length === 0}
-          <div class="empty-state">Tidak ada file terbaru · <a href={APP_URLS.cloud} target="_blank" rel="noopener" style="color:var(--pri)">Buka Nextcloud</a></div>
+          <div class="empty-state">Tidak ada file terbaru · <button onclick={() => ui.navigateTo('drive')} style="color:var(--pri);background:none;border:none;cursor:pointer">Buka Nextcloud</button></div>
         {:else}
           {#each recentFiles as f}
             <a class="file-row" href={f.href} target="_blank" rel="noopener">
@@ -480,7 +481,7 @@
   .page-sub { font-size:13px; color:var(--fg-3); margin-top:4px; }
 
   /* ── Stat cards ──────────────────────────────────────────── */
-  .stat-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; }
+  .stat-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; }
   .stat-card { background:var(--bg-1); border:1px solid var(--bd-1); border-radius:var(--r-lg); padding:18px 20px; display:flex; flex-direction:column; gap:8px; transition:all .15s; }
   .stat-card:hover { border-color:var(--bd-2); transform:translateY(-1px); }
   .stat-card-head { display:flex; align-items:center; justify-content:space-between; }
@@ -501,7 +502,7 @@
   .split { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
 
   /* ── Email ───────────────────────────────────────────────── */
-  .inbox-row { display:flex; align-items:flex-start; gap:10px; padding:12px 20px; border-bottom:1px solid var(--bd-1); transition:.12s; text-decoration:none; color:inherit; }
+  .inbox-row { display:flex; align-items:flex-start; gap:10px; padding:12px 20px; border-bottom:1px solid var(--bd-1); transition:.12s; text-decoration:none; color:inherit; width:100%; text-align:left; background:none; border:none; border-bottom:1px solid var(--bd-1); cursor:pointer; font-family:inherit; }
   .inbox-row:last-child { border-bottom:none; }
   .inbox-row:hover { background:var(--bg-2); }
   .unread-dot { width:7px; height:7px; border-radius:50%; background:transparent; border:1px solid var(--bd-2); flex-shrink:0; margin-top:5px; }
@@ -513,7 +514,7 @@
   .empty-state { padding:32px; text-align:center; color:var(--fg-3); font-size:13px; }
 
   /* ── Agenda ──────────────────────────────────────────────── */
-  .agenda-row { display:flex; align-items:flex-start; gap:12px; padding:12px 20px; border-bottom:1px solid var(--bd-1); text-decoration:none; color:inherit; transition:.12s; }
+  .agenda-row { display:flex; align-items:flex-start; gap:12px; padding:12px 20px; border-bottom:1px solid var(--bd-1); text-decoration:none; color:inherit; transition:.12s; width:100%; text-align:left; background:none; border:none; border-bottom:1px solid var(--bd-1); cursor:pointer; font-family:inherit; }
   .agenda-row:hover { background:var(--bg-2); }
   .agenda-time { font-family:'Geist Mono',monospace; font-size:11px; color:var(--fg-3); width:42px; flex-shrink:0; padding-top:2px; }
   .agenda-bar { width:3px; border-radius:2px; min-height:38px; flex-shrink:0; align-self:stretch; }

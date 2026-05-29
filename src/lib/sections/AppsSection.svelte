@@ -1,32 +1,45 @@
 <script lang="ts">
   import { ui } from '../ui.svelte';
+  import { auth } from '../auth.svelte';
   import { APP_URLS } from '../config';
 
-  const apps = [
+  // App cards — mail/cloud route to internal OPSID scenes, erp uses AppViewer (iframe).
+  // Keycloak is only shown to admins (it's an internal admin tool, not a user workspace app).
+  const allApps = [
     {
       key: 'erp', name: 'Odoo ERP', desc: 'CRM, inventory, akuntansi, HR, POS',
-      url: APP_URLS.erp, icon: '📦', color: '#714B67', embeddable: true,
-      status: 'active', label: 'ERP',
+      icon: '📦', color: '#714B67',
+      action: 'app',   // opens in AppViewer iframe
+      adminOnly: false,
     },
     {
       key: 'mail', name: 'SOGo Mail', desc: 'Email, kalender, dan kontak terpusat',
-      url: APP_URLS.mail, icon: '✉️', color: '#3B7FC4', embeddable: false,
-      status: 'active', label: 'Email',
+      icon: '✉️', color: '#3B7FC4',
+      action: 'scene', // navigates to 'mail' scene
+      adminOnly: false,
     },
     {
       key: 'cloud', name: 'Nextcloud', desc: 'File storage, kolaborasi dokumen',
-      url: APP_URLS.cloud, icon: '☁️', color: '#0082C9', embeddable: false,
-      status: 'active', label: 'Drive',
-    },
-    {
-      key: 'auth', name: 'Keycloak SSO', desc: 'Identity & access management',
-      url: APP_URLS.auth, icon: '🔑', color: '#4D4D4D', embeddable: true,
-      status: 'active', label: 'SSO',
+      icon: '☁️', color: '#0082C9',
+      action: 'scene', // navigates to 'drive' scene
+      adminOnly: false,
     },
   ];
 
-  function openApp(app: typeof apps[0]) {
-    ui.openApp(app.key, app.url, app.name);
+  let apps = $derived(allApps);
+
+  function openApp(app: typeof allApps[0]) {
+    if (app.action === 'scene') {
+      // Navigate to internal OPSID scene (Mail → MailSection, cloud → DriveSection)
+      const scene = app.key === 'mail' ? 'mail' : app.key === 'cloud' ? 'drive' : app.key;
+      ui.navigateTo(scene);
+    } else if (app.action === 'app') {
+      // Open in AppViewer iframe
+      ui.openApp(app.key, APP_URLS.erp, app.name);
+    } else {
+      // External tab
+      window.open(APP_URLS[app.key as keyof typeof APP_URLS] ?? '#', '_blank', 'noopener');
+    }
   }
 </script>
 
@@ -50,16 +63,19 @@
               <span>{app.icon}</span>
             </div>
             <div class="app-status">
-              <span class="dot dot-ok dot-pulse"></span>
+              <span class="dot-pulse" style="background:{app.color}"></span>
               <span class="status-label">Aktif</span>
             </div>
           </div>
           <div class="app-card-body">
             <div class="app-name">{app.name}</div>
-            <div class="app-label-badge" style="background:color-mix(in srgb, {app.color} 15%, transparent);color:{app.color}">{app.label}</div>
             <div class="app-desc">{app.desc}</div>
-            {#if !app.embeddable}
-              <div class="embed-note">⚠️ Dibuka di tab baru</div>
+            {#if app.action === 'external'}
+              <div class="embed-note">↗ Dibuka di tab baru</div>
+            {:else if app.action === 'scene'}
+              <div class="embed-note" style="color:var(--ok)">✓ Tampil di dalam OPSID</div>
+            {:else}
+              <div class="embed-note" style="color:var(--ok)">✓ Embed di dalam OPSID</div>
             {/if}
           </div>
           <div class="app-card-foot">
@@ -93,13 +109,15 @@
   .app-card-head { display:flex; align-items:center; justify-content:space-between; }
   .app-icon { width:52px; height:52px; border-radius:14px; display:grid; place-items:center; border:1px solid; font-size:26px; }
   .app-status { display:flex; align-items:center; gap:5px; }
+  .dot-pulse { width:8px; height:8px; border-radius:50%; animation:pulse 2s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
   .status-label { font-size:11px; color:var(--ok); }
 
   .app-card-body { flex:1; display:flex; flex-direction:column; gap:6px; }
   .app-name { font-size:16px; font-weight:600; color:var(--fg-1); }
-  .app-label-badge { display:inline-block; padding:2px 8px; border-radius:4px; font-size:10px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; align-self:flex-start; }
   .app-desc { font-size:12px; color:var(--fg-3); line-height:1.6; }
   .embed-note { font-size:11px; color:var(--warn); margin-top:2px; }
 
+  .app-card-foot { }
   .app-open-btn { width:100%; justify-content:center; }
 </style>

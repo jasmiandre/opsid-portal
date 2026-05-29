@@ -1,7 +1,10 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 
-const SOGO_BASE = 'https://mail.opsid.web.id/SOGo';
+// Use internal IP directly — bypasses hairpin NAT (public URL times out from inside VM).
+// SOGo at mail-01 is configured with WOTrustProxyAuthentication = YES,
+// so we can set X-Webobjects-Remote-User without re-authenticating.
+const SOGO_BASE = 'http://10.34.1.6:80/SOGo';
 
 interface CalEvent {
   time: string;
@@ -56,47 +59,30 @@ export const GET: RequestHandler = async ({ url, cookies }) => {
 </C:calendar-query>`;
 
   try {
-    const kcToken = cookies.get('opsid_token');
     const res = await fetch(calDavUrl, {
       method: 'REPORT',
       headers: {
-        'Content-Type': 'application/xml',
-        'Depth': '1',
-        ...(kcToken ? { 'Authorization': `Bearer ${kcToken}` } : {}),
+        'Content-Type':             'application/xml',
+        'Depth':                    '1',
+        // Proxy trust header — SOGo is configured to trust this from internal callers
+        'X-Webobjects-Remote-User': user,
       },
       body,
-      signal: AbortSignal.timeout(6000),
+      signal: AbortSignal.timeout(8000),
     });
 
-if (!res.ok) {
-  const errorText = await res.text().catch(() => '');
-  console.error('SOGo CalDAV error:', res.status, errorText.slice(0, 300));
-  return json({
-    events: [],
-    error: 'SOGo CalDAV failed',
-    status: res.status,
-    detail: errorText.slice(0, 300),
-  });
-}
-const text = await res.text();
-const events = parseIcalEvents(text);
+    if (!res.ok) {
+      const errorText = await res.text().catch(() => '');
+      console.error('SOGo CalDAV error:', res.status, errorText.slice(0, 200));
+      return json({ events: [], error: `SOGo ${res.status}`, detail: errorText.slice(0, 200) });
+    }
 
-return json({
-  events,
-  debug: {
-    sogoStatus: res.status,
-    sogoOk: res.ok,
-    responseLength: text.length,
-    hasCalendarData: text.includes('calendar-data'),
-    preview: text.slice(0, 300),
-  },
-});
-} catch (e) {
-  console.error('SOGo Calendar fetch failed:', e);
-  return json({
-    events: [],
-    error: 'SOGo Calendar fetch exception',
-    detail: String(e),
-  });
-}
+    const text   = await res.text();
+    const events = parseIcalEvents(text);
+    return json({ events });
+
+  } catch (e) {
+    console.error('SOGo Calendar fetch failed:', e);
+    return json({ events: [], error: String(e) });
+  }
 };

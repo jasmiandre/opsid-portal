@@ -16,15 +16,17 @@ export const handle: Handle = async ({ event, resolve }) => {
 
   try {
     const result = await db.query(
-      `SELECT primary_color, logo_url, name FROM tenants WHERE domain = $1 LIMIT 1`,
+      `SELECT id, primary_color, logo_url, name, domain FROM tenants WHERE domain = $1 LIMIT 1`,
       [host]
     );
     if (result.rows.length > 0) {
       const row = result.rows[0];
       event.locals.branding = {
         primary_color: row.primary_color || DEFAULT_BRANDING.primary_color,
-        logo_url: row.logo_url || '',
-        tenant_name: row.name || DEFAULT_BRANDING.tenant_name,
+        logo_url:      row.logo_url || '',
+        tenant_name:   row.name || DEFAULT_BRANDING.tenant_name,
+        tenant_domain: row.domain,
+        tenant_id:     row.id,
       };
     } else {
       event.locals.branding = DEFAULT_BRANDING;

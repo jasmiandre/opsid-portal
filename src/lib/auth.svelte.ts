@@ -19,17 +19,27 @@ class AuthState {
   async init() {
     const { default: Keycloak } = await import('keycloak-js');
     this.kc = new Keycloak({ url: KC_URL, realm: REALM, clientId: CLIENT_ID });
+    // Capture the current origin ONCE so every KC redirect stays on the same domain.
+    // This is critical for custom-domain tenants (e.g. workspace.1go.biz.id) where
+    // window.location.origin must NOT be read lazily inside KC callbacks.
+    const origin = window.location.origin;
     try {
       this.authenticated = await this.kc.init({
-        onLoad: 'check-sso',
-        silentCheckSsoRedirectUri: window.location.origin + '/silent-check-sso.html',
-        checkLoginIframe: false,
-        pkceMethod: 'S256'
+        onLoad:                   'check-sso',
+        // redirectUri: set here so KC JS uses this domain as default for ALL internal
+        // login calls (auth_expired refresh, etc.) — not the KC client's rootUrl.
+        redirectUri:              origin + '/',
+        silentCheckSsoRedirectUri: origin + '/silent-check-sso.html',
+        // Disable the silent-check fallback — prevents KC JS from doing an unexpected
+        // full-page redirect to KC using the KC client's rootUrl (opsid.web.id).
+        silentCheckSsoFallback:   false,
+        checkLoginIframe:         false,
+        pkceMethod:               'S256',
       });
       if (this.authenticated) {
         this.#loadProfileFromToken();
         this.#saveCookie();
-        this.#scheduleRefresh();
+        this.#scheduleRefresh(origin);
         // Enrich with DB role info in the background (non-blocking)
         this.#enrichProfileFromBackend().catch(() => {});
       }
@@ -38,10 +48,10 @@ class AuthState {
     }
   }
 
-  login()  { this.kc?.login({ redirectUri: 'https://opsid.web.id' }); }
+  login()  { this.kc?.login({ redirectUri: window.location.origin + '/' }); }
   logout() {
     this.#clearCookie();
-    this.kc?.logout({ redirectUri: 'https://opsid.web.id' });
+    this.kc?.logout({ redirectUri: window.location.origin });
   }
 
   get token(): string | undefined { return this.kc?.token; }
@@ -94,18 +104,30 @@ class AuthState {
 
   #saveCookie() {
     if (!this.kc?.token) return;
-    document.cookie = `opsid_token=${this.kc.token}; path=/; domain=.opsid.web.id; max-age=3600; SameSite=Lax; Secure`;
+    // For opsid subdomains, set domain=.opsid.web.id so all subdomains share the session.
+    // For custom domains (e.g. workspace.1go.biz.id), omit domain so cookie is host-only.
+    const host = window.location.hostname;
+    const domainPart = (host === 'opsid.web.id' || host.endsWith('.opsid.web.id'))
+      ? 'domain=.opsid.web.id; '
+      : '';
+    document.cookie = `opsid_token=${this.kc.token}; path=/; ${domainPart}max-age=3600; SameSite=Lax; Secure`;
   }
 
   #clearCookie() {
-    document.cookie = 'opsid_token=; path=/; domain=.opsid.web.id; max-age=0';
+    const host = window.location.hostname;
+    const domainPart = (host === 'opsid.web.id' || host.endsWith('.opsid.web.id'))
+      ? 'domain=.opsid.web.id; '
+      : '';
+    document.cookie = `opsid_token=; path=/; ${domainPart}max-age=0`;
   }
 
-  #scheduleRefresh() {
+  #scheduleRefresh(origin: string) {
     setInterval(() => {
       this.kc?.updateToken(60)
         .then((refreshed: boolean) => { if (refreshed) this.#saveCookie(); })
-        .catch(() => { this.#clearCookie(); this.kc?.login(); });
+        // Pass explicit redirectUri so the re-login stays on the current domain,
+        // not KC's configured rootUrl (https://opsid.web.id).
+        .catch(() => { this.#clearCookie(); this.kc?.login({ redirectUri: origin + '/' }); });
     }, 60_000);
   }
 }

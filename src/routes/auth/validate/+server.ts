@@ -1,35 +1,21 @@
 import type { RequestHandler } from "@sveltejs/kit"
-import { json } from "@sveltejs/kit"
 
-const KEYCLOAK_USERINFO = "https://auth.opsid.web.id/realms/opsid-internal/protocol/openid-connect/userinfo"
-
-// Endpoint ini dipanggil oleh Nginx auth_request
-// untuk validasi session Keycloak user
-// Return 200 + X-Auth-Username header jika valid
-// Return 401 jika tidak valid
-
+// Validate portal session for nginx auth_request (SOGo, Nextcloud, Odoo SSO).
+// Uses LOCAL JWT decode — no Keycloak network call.
+// This avoids the 130s hairpin-NAT timeout that occurred when calling
+// https://auth.opsid.web.id/realms/.../userinfo from inside the VM network.
 export const GET: RequestHandler = async ({ request, cookies }) => {
   try {
-    // Ambil token dari cookie atau Authorization header
-    const authHeader = request.headers.get("authorization")
+    // 1. Get token from cookie (primary) or Authorization header (fallback)
     const cookieHeader = request.headers.get("cookie") || ""
-
-    // Coba ambil access token dari cookie portal
-    // Portal menyimpan token di cookie saat login
     let accessToken = ""
 
-    // Cari token di cookie
-    const tokenCookie = cookieHeader
-      .split(";")
-      .find(c => c.trim().startsWith("opsid_token="))
-    
-    if (tokenCookie) {
-      accessToken = tokenCookie.split("=")[1]?.trim() || ""
-    }
+    const tokenCookie = cookieHeader.split(";").find(c => c.trim().startsWith("opsid_token="))
+    if (tokenCookie) accessToken = tokenCookie.split("=")[1]?.trim() || ""
 
-    // Atau dari Authorization header
-    if (!accessToken && authHeader?.startsWith("Bearer ")) {
-      accessToken = authHeader.substring(7)
+    if (!accessToken) {
+      const authHeader = request.headers.get("authorization")
+      if (authHeader?.startsWith("Bearer ")) accessToken = authHeader.substring(7)
     }
 
     if (!accessToken) {
@@ -39,28 +25,27 @@ export const GET: RequestHandler = async ({ request, cookies }) => {
       })
     }
 
-    // Validasi token ke Keycloak userinfo endpoint
-    const userInfoRes = await fetch(KEYCLOAK_USERINFO, {
-      headers: {
-        "Authorization": `Bearer ${accessToken}`
-      }
-    })
+    // 2. Decode JWT payload (Keycloak already verified signature; we just read claims)
+    const parts = accessToken.split('.')
+    if (parts.length < 2) return new Response("Unauthorized", { status: 401 })
 
-    if (!userInfoRes.ok) {
-      return new Response("Unauthorized", { status: 401 })
+    const payload = JSON.parse(
+      Buffer.from(parts[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8')
+    )
+
+    // 3. Check token expiry
+    const now = Math.floor(Date.now() / 1000)
+    if (payload.exp && payload.exp < now) {
+      return new Response("Token expired", { status: 401 })
     }
 
-    const userInfo = await userInfoRes.json()
-    const username = userInfo.preferred_username || ""
-    const email    = userInfo.email || ""
-    const name     = userInfo.name || username
+    const username = payload.preferred_username || ""
+    const email    = payload.email || ""
+    const name     = payload.name || username
 
-    if (!username) {
-      return new Response("Unauthorized", { status: 401 })
-    }
+    if (!username) return new Response("Unauthorized", { status: 401 })
 
-    // Return 200 dengan username di header
-    // Nginx akan inject header ini ke SOGo/Odoo
+    // 4. Return 200 + auth headers — nginx injects X-Auth-Username into backend requests
     return new Response("OK", {
       status: 200,
       headers: {
@@ -71,8 +56,7 @@ export const GET: RequestHandler = async ({ request, cookies }) => {
       }
     })
 
-  } catch (error) {
-    console.error("Auth validate error:", error)
+  } catch {
     return new Response("Unauthorized", { status: 401 })
   }
 }

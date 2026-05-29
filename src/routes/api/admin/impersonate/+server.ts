@@ -4,10 +4,11 @@ import { logAudit, usernameFromCookie } from '$lib/server/audit';
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
-const KC_BASE = 'https://auth.opsid.web.id';
+const KC_INTERNAL = 'http://10.34.1.4:8080';   // server-side API calls — no hairpin NAT
+const KC_PUBLIC   = 'https://auth.opsid.web.id'; // redirect URLs sent to browser
 
 async function getKcToken(): Promise<string> {
-  const res = await fetch(`${KC_BASE}/realms/master/protocol/openid-connect/token`, {
+  const res = await fetch(`${KC_INTERNAL}/realms/master/protocol/openid-connect/token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: 'client_id=admin-cli&grant_type=password&username=opsid-admin&password=sandiaman2026',
@@ -31,7 +32,7 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 
     // Cari user ID di Keycloak
     const usersRes = await fetch(
-      `${KC_BASE}/admin/realms/opsid-internal/users?username=${encodeURIComponent(username)}&exact=true`,
+      `${KC_INTERNAL}/admin/realms/opsid-internal/users?username=${encodeURIComponent(username)}&exact=true`,
       { headers: { 'Authorization': `Bearer ${kcToken}` } }
     );
     if (!usersRes.ok) throw new Error(`KC users search failed: ${usersRes.status}`);
@@ -40,9 +41,9 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 
     const userId = users[0].id;
 
-    // Jalankan impersonation KC — returns redirect URL
+    // Jalankan impersonation KC — returns redirect URL (may contain internal IP, normalize to public)
     const impRes = await fetch(
-      `${KC_BASE}/admin/realms/opsid-internal/users/${userId}/impersonation`,
+      `${KC_INTERNAL}/admin/realms/opsid-internal/users/${userId}/impersonation`,
       {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${kcToken}`, 'Content-Type': 'application/json' },
@@ -50,7 +51,11 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
     );
 
     const impData = await impRes.json().catch(() => ({}));
-    const redirectUrl: string = impData.redirect || `${KC_BASE}/realms/opsid-internal/account`;
+    const rawRedirect: string = impData.redirect || `${KC_INTERNAL}/realms/opsid-internal/account`;
+    // Normalise to public URL: strip any port from auth.opsid.web.id, replace internal IP
+    const redirectUrl = rawRedirect
+      .replace(/https?:\/\/10\.34\.1\.4(:\d+)?/g, KC_PUBLIC)
+      .replace(/https?:\/\/auth\.opsid\.web\.id(:\d+)?/g, KC_PUBLIC);
 
     await logAudit(actor, 'IMPERSONATE_USER', username, { targetUserId: userId, redirectUrl });
 

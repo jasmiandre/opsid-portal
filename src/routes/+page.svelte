@@ -22,10 +22,18 @@
     await auth.init();
     if (auth.authenticated) scene = 'dashboard';
   });
+
+  // Allow components without onScene access (Dashboard, AppsSection) to trigger navigation
+  $effect(() => {
+    if (ui.pendingScene) {
+      scene = ui.pendingScene as Scene;
+      ui.pendingScene = null;
+    }
+  });
 </script>
 
 {#if auth.loading}
-  <div class="boot">Memuat OPSID…</div>
+  <div class="boot">Memuat…</div>
 {:else if scene === 'landing'}
   <Landing />
 {:else}

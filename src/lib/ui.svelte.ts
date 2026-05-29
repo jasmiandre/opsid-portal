@@ -24,6 +24,10 @@ class UIState {
   showProfileModal  = $state(false);
   profileTab        = $state<'profil' | 'keamanan' | 'organisasi'>('profil');
 
+  // Used by components that don't have onScene callback (e.g. Dashboard, AppsSection).
+  // +page.svelte watches this and updates scene accordingly.
+  pendingScene      = $state<string | null>(null);
+
   // Notification badge — refreshed by Dashboard / Sidebar
   notifCount        = $state(0);
   notifList         = $state<Array<{ id: string; type: string; message: string; time: string }>>([]);
@@ -36,6 +40,13 @@ class UIState {
 
   closeApp() {
     this.currentApp = null;
+  }
+
+  // Navigate to an OPSID scene from anywhere (Dashboard, AppsSection, etc.)
+  // +page.svelte watches pendingScene and updates scene.
+  navigateTo(scene: string) {
+    this.currentApp  = null;  // close any open app first
+    this.pendingScene = scene;
   }
 
   openProfile(tab: 'profil' | 'keamanan' | 'organisasi' = 'profil') {

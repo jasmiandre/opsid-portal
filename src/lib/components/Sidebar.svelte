@@ -3,6 +3,7 @@
   import { ui } from '../ui.svelte';
   import { APP_URLS } from '../config';
   import type { Scene } from '../types';
+  import { page } from '$app/state';
 
   interface Props {
     scene: Scene;
@@ -27,6 +28,7 @@
   };
 
   let showAdmin = $derived(auth.profile.isAdmin || auth.profile.isTenantAdmin);
+  let branding  = $derived(page.data?.branding ?? { tenant_name: 'OPSID', logo_url: '', primary_color: '#5B86FF' });
 
   // Determine active scene indicator (also when AppViewer is showing)
   function isActive(s: Scene) {
@@ -44,9 +46,13 @@
   <!-- Brand -->
   <div class="sidebar-head">
     <div class="brand" onclick={() => navigate('dashboard')} role="button" tabindex="0" onkeydown={(e) => e.key==='Enter' && navigate('dashboard')}>
-      <div class="brand-mark"></div>
+      {#if branding.logo_url}
+        <img src={branding.logo_url} alt={branding.tenant_name} class="brand-logo" style="height:30px" />
+      {:else}
+        <img src="/brand/opsid-logo.png" alt={branding.tenant_name} class="brand-logo" style="height:30px" />
+      {/if}
       <div>
-        <div class="brand-name">OPSID</div>
+        <div class="brand-name">{branding.tenant_name}</div>
         <div class="brand-sub">Workspace</div>
       </div>
     </div>

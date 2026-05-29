@@ -3,6 +3,7 @@
   import { ui } from '../../ui.svelte';
   import { onMount } from 'svelte';
   import TenantUsersModal from '../../components/TenantUsersModal.svelte';
+  import DnsWizard from '../../components/DnsWizard.svelte';
 
   // ── Icons ───────────────────────────────────────────────────
   const I = {
@@ -17,11 +18,14 @@
     lock:    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>`,
     trash:   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>`,
     globe:   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>`,
+    mail:    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>`,
+    key:     `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/></svg>`,
     check:   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><polyline points="20 6 9 17 4 12"/></svg>`,
     download:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`,
     x:       `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
     bell:    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 7 3 9H3c0-2 3-2 3-9Z"/><path d="M10 21a2 2 0 0 0 4 0"/></svg>`,
     searchSm:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><circle cx="11" cy="11" r="7"/><path d="m20 20-4.3-4.3"/></svg>`,
+    inbox:   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>`,
   };
 
   // ── Types ───────────────────────────────────────────────────
@@ -43,6 +47,9 @@
     user_count: number;
     plan_nextcloud_gb?: number;
     plan_email_gb?: number;
+    plan_odoo_gb?: number;
+    max_users?: number;
+    plan_tier?: string;
     created_at?: string;
     status?: string;
   }
@@ -65,6 +72,34 @@
     target: string;
     type: string;
   }
+  interface ProvStep { step: string; ok: boolean; error?: string; }
+  interface OnboardingRequest {
+    id: number;
+    company_name: string;
+    pic_name: string;
+    pic_email: string;
+    pic_whatsapp?: string;
+    domain_type?: string;
+    domain_value?: string;
+    user_count: number;
+    plan_tier: string;
+    status: string;
+    notes?: string;
+    tenant_id?: number;
+    provisioning_log?: ProvStep[];
+    created_at: string;
+    reviewed_at?: string;
+    reviewed_by?: string;
+  }
+  interface ApproveResult {
+    reqId:         number;
+    tenant?:       any;
+    adminUsername?: string;
+    adminPassword?: string;
+    domain?:       string;
+    steps?:        { step: string; ok: boolean; error?: string }[];
+    error?:        string;
+  }
 
   // ── State ───────────────────────────────────────────────────
   let activeTab     = $state('users');
@@ -73,12 +108,34 @@
   let users         = $state<User[]>([]);
   let tenants       = $state<Tenant[]>([]);
   let services      = $state<VM[]>([]);
-  let auditLogs     = $state<AuditLog[]>([]);
+  let auditLogs         = $state<AuditLog[]>([]);
+  let onboardingReqs    = $state<OnboardingRequest[]>([]);
+  let onboardingFilter  = $state('pending');
+  let onboardingBusy    = $state<number | null>(null);
+  let rejectModal       = $state<OnboardingRequest | null>(null);
+  let rejectNotes       = $state('');
+  let approveResult     = $state<ApproveResult | null>(null);
+  // ── Reprovision ─────────────────────────────────────────────
+  let reprovisionBusy      = $state<number | null>(null);
+  let reprovisionResult    = $state<{ reqId: number; steps: ProvStep[]; mergedLog: ProvStep[]; adminPassword?: string; error?: string } | null>(null);
+  let provLogModal         = $state<OnboardingRequest | null>(null);
+  let resetProcessingBusy  = $state<number | null>(null);
   let searchUser    = $state('');
   let searchAudit   = $state('');
   let showAddUser   = $state(false);
   let showAddTenant = $state(false);
   let confirmDelete = $state<Tenant | null>(null);
+
+  // ── Edit Tenant modal ───────────────────────────────────────
+  let editTenantTarget = $state<Tenant | null>(null);
+  let editTenantForm   = $state({
+    name: '', primaryColor: '#3B82F6', logoUrl: '',
+    planNextcloudGb: 50, planEmailGb: 50, planOdooGb: 50,
+    maxUsers: 50, planTier: 'basic', status: 'active',
+  });
+  let editTenantBusy = $state(false);
+  let editTenantMsg  = $state('');
+
   let impersonating       = $state(false);
   let impersonateTarget   = $state('');
 
@@ -91,18 +148,73 @@
   // ── Delete User confirmation ────────────────────────────────
   let deleteUserTarget = $state<User | null>(null);
 
+  // ── Reset Password ──────────────────────────────────────────
+  let resetPwTarget = $state<User | null>(null);
+  let resetPwValue  = $state('');
+  let resetPwBusy   = $state(false);
+  let resetPwMsg    = $state('');
+
   // ── Tenant Users Modal ──────────────────────────────────────
   let tenantUsersOpen   = $state(false);
   let tenantUsersTarget = $state<Tenant | null>(null);
+
+  // ── DNS Wizard Modal (superadmin — per tenant card) ──────────
+  let dnsWizardOpen   = $state(false);
+  let dnsWizardTarget = $state<Tenant | null>(null);
 
   // ── DNS check inline result ─────────────────────────────────
   interface DnsResult { domain: string; pointing: boolean; resolved_ip?: string; target_ip?: string; error?: string; }
   let dnsResults = $state<Record<string, DnsResult>>({});
 
+  // ── SSL check inline result ──────────────────────────────────
+  interface SslResult {
+    domain: string; dns_pointing: boolean; dns_ip?: string;
+    ssl_valid?: boolean; ssl_subject?: string; ssl_issuer?: string;
+    ssl_expires?: string; ssl_days_left?: number; ssl_error?: string;
+  }
+  let sslResults  = $state<Record<string, SslResult>>({});
+  let sslChecking = $state<Record<string, boolean>>({});
+
+  // ── Validation check ─────────────────────────────────────────
+  interface CheckItem  { ok: boolean; detail: string; [k: string]: any }
+  interface CheckResult {
+    allPassing:       boolean;
+    failCount:        number;
+    tenant:           any;
+    onboarding:       any;
+    provisioning_log: ProvStep[];
+    checks: {
+      dns:           CheckItem | null;
+      ssl:           CheckItem | null;
+      kc_org:        CheckItem;
+      kc_user:       CheckItem;
+      freeipa_group: CheckItem;
+      freeipa_user:  CheckItem;
+      nc_group:      CheckItem;
+      nc_user:       CheckItem;
+      sogo_quota:    CheckItem;
+      odoo_company:  CheckItem;
+      odoo_user:     CheckItem;
+    };
+    checked_at: string;
+  }
+  let checkBusy        = $state<Record<number, boolean>>({});
+  let checkAllBusy     = $state(false);
+  let validationModal  = $state<CheckResult | null>(null);
+  let quickCheck       = $state<Record<number, { allPassing: boolean; failCount: number }>>({});
+
   // ── Tenant Profile edit (for tenant admin) ──────────────────
   let tenantEditForm  = $state({ primaryColor: '', logoUrl: '' });
   let tenantEditMsg   = $state('');
   let tenantEditBusy  = $state(false);
+
+  $effect(() => {
+    if (activeTab === 'requests') fetchOnboardingRequests();
+  });
+
+  $effect(() => {
+    if (onboardingFilter) fetchOnboardingRequests();
+  });
 
   $effect(() => {
     // Pre-fill from auth profile when tab opens
@@ -167,11 +279,13 @@
       { id: 'tenants',        label: 'Tenant Management', icon: I.building },
       { id: 'health',         label: 'Service Health',    icon: I.pulse    },
       { id: 'audit',          label: 'Audit Log',         icon: I.fileText },
+      { id: 'requests',       label: 'Permintaan',        icon: I.inbox    },
     ];
     if (auth.profile.isAdmin) return all;
     if (auth.profile.isTenantAdmin) return [
       { id: 'users',          label: 'User Management',   icon: I.users    },
       { id: 'tenant-profile', label: 'Profil Organisasi', icon: I.building },
+      { id: 'dns-email',      label: 'DNS & Email',       icon: I.mail     },
     ];
     return [];
   })());
@@ -269,8 +383,109 @@
     }
   }
 
+  async function fetchOnboardingRequests() {
+    try {
+      const res = await fetch('/api/onboarding?status=' + onboardingFilter);
+      const data = await res.json();
+      if (data.ok) onboardingReqs = data.requests ?? [];
+    } catch {
+      onboardingReqs = [];
+    }
+  }
+
+  async function reviewRequest(req: OnboardingRequest, status: 'approved' | 'rejected', notes?: string) {
+    onboardingBusy = req.id;
+    try {
+      const res = await fetch('/api/onboarding/' + req.id, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status, notes: notes ?? null }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        onboardingReqs = onboardingReqs.map(r =>
+          r.id === req.id
+            ? { ...r, status, tenant_id: data.tenant?.id }
+            : r
+        );
+        if (rejectModal?.id === req.id) { rejectModal = null; rejectNotes = ''; }
+        if (status === 'approved') {
+          approveResult = {
+            reqId:         req.id,
+            tenant:        data.tenant,
+            adminUsername: data.adminUsername,
+            adminPassword: data.adminPassword,
+            domain:        data.domain,
+            steps:         data.steps,
+          };
+        }
+      } else {
+        approveResult = {
+          reqId: req.id,
+          error: data.error ?? 'Unknown error',
+          steps: data.steps,
+        };
+      }
+    } catch (e) {
+      approveResult = { reqId: req.id, error: 'Koneksi gagal: ' + String(e) };
+    }
+    onboardingBusy = null;
+  }
+
+  async function reprovision(req: OnboardingRequest) {
+    reprovisionBusy = req.id;
+    try {
+      const res  = await fetch(`/api/admin/onboarding/${req.id}/reprovision`, { method: 'POST' });
+      const data = await res.json();
+      // Update local provisioning_log with merged result
+      if (data.mergedLog) {
+        onboardingReqs = onboardingReqs.map(r =>
+          r.id === req.id ? { ...r, provisioning_log: data.mergedLog } : r
+        );
+      }
+      reprovisionResult = {
+        reqId:         req.id,
+        steps:         data.steps ?? [],
+        mergedLog:     data.mergedLog ?? [],
+        adminPassword: data.adminPassword,
+        error:         data.ok ? undefined : (data.error ?? 'Beberapa step gagal'),
+      };
+    } catch (e) {
+      reprovisionResult = { reqId: req.id, steps: [], mergedLog: [], error: 'Koneksi gagal: ' + String(e) };
+    }
+    reprovisionBusy = null;
+  }
+
+  async function resetProcessingRequest(req: OnboardingRequest) {
+    resetProcessingBusy = req.id;
+    try {
+      const res = await fetch('/api/onboarding/' + req.id, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'reset_pending', notes: 'Reset manual oleh admin dari status processing' }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        onboardingReqs = onboardingReqs.map(r =>
+          r.id === req.id ? { ...r, status: 'pending' } : r
+        );
+      }
+    } catch (e) {
+      console.error('Reset processing failed:', e);
+    }
+    resetProcessingBusy = null;
+  }
+
   async function createUser() {
     if (!newUser.username || !newUser.fullname || !newUser.email || !newUser.password) return;
+    // Validate email domain for tenant admins
+    if (!auth.profile.isAdmin) {
+      const expectedDomain = auth.profile.tenantDomain || (auth.profile.organizationSlug ? auth.profile.organizationSlug + '.opsid.web.id' : null);
+      if (expectedDomain && !newUser.email.endsWith('@' + expectedDomain)) {
+        alert(`Email harus menggunakan domain @${expectedDomain}`);
+        return;
+      }
+    }
     submitting = true;
     try {
       const res = await fetch('/api/users', {
@@ -338,6 +553,59 @@
     submitting = false;
   }
 
+  // ── Edit Tenant ──────────────────────────────────────────────
+  function openEditTenant(t: Tenant) {
+    editTenantTarget = t;
+    editTenantForm = {
+      name:             t.name,
+      primaryColor:     t.primary_color,
+      logoUrl:          t.logo_url ?? '',
+      planNextcloudGb:  t.plan_nextcloud_gb ?? 50,
+      planEmailGb:      t.plan_email_gb ?? 50,
+      planOdooGb:       50,
+      maxUsers:         50,
+      planTier:         'basic',
+      status:           t.status ?? 'active',
+    };
+    editTenantMsg = '';
+  }
+
+  async function saveEditTenant() {
+    if (!editTenantTarget?.id) return;
+    editTenantBusy = true; editTenantMsg = '';
+    try {
+      const res = await fetch('/api/admin/tenant/' + editTenantTarget.id, {
+        method:  'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(editTenantForm),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        editTenantMsg = 'Tersimpan';
+        // Update local state immediately
+        tenants = tenants.map(t =>
+          t.id === editTenantTarget!.id
+            ? {
+                ...t,
+                name:             editTenantForm.name,
+                primary_color:    editTenantForm.primaryColor,
+                logo_url:         editTenantForm.logoUrl,
+                plan_nextcloud_gb: editTenantForm.planNextcloudGb,
+                plan_email_gb:    editTenantForm.planEmailGb,
+                status:           editTenantForm.status,
+              }
+            : t
+        );
+        setTimeout(() => { editTenantTarget = null; }, 800);
+      } else {
+        editTenantMsg = 'Gagal: ' + (data.error ?? 'Unknown error');
+      }
+    } catch {
+      editTenantMsg = 'Koneksi gagal';
+    }
+    editTenantBusy = false;
+  }
+
   async function checkDns(tenant: Tenant) {
     if (!tenant.id) return;
     const key = tenant.domain;
@@ -355,6 +623,64 @@
     } catch {
       dnsResults[key] = { domain: tenant.domain, pointing: false, error: 'Koneksi gagal' };
     }
+  }
+
+  async function checkSsl(tenant: Tenant) {
+    if (!tenant.id) return;
+    const key = String(tenant.id);
+    sslChecking[key] = true;
+    try {
+      const res  = await fetch('/api/admin/tenant/' + tenant.id + '/ssl');
+      const data = await res.json();
+      sslResults[key] = data;
+    } catch {
+      sslResults[key] = { domain: tenant.domain, dns_pointing: false, ssl_error: 'Koneksi gagal' };
+    }
+    sslChecking[key] = false;
+  }
+
+  // ── Validation check ─────────────────────────────────────────
+  async function runCheck(tenant: Tenant, withSsl = false) {
+    checkBusy[tenant.id] = true;
+    try {
+      const qs  = withSsl ? '?ssl=1' : '';
+      const res = await fetch(`/api/admin/tenant/${tenant.id}/check${qs}`);
+      const data: CheckResult = await res.json();
+      validationModal = data;
+      quickCheck[tenant.id] = { allPassing: data.allPassing, failCount: data.failCount };
+    } catch (e) {
+      const fallback: CheckResult = {
+        allPassing: false, failCount: 1,
+        tenant: { id: tenant.id, name: tenant.name, slug: '', domain: tenant.domain, status: '', plan_tier: '' },
+        onboarding: null, provisioning_log: [],
+        checks: { dns: null, ssl: null, kc_org: { ok: false, detail: 'Koneksi gagal' },
+          kc_user: { ok: false, detail: '' }, freeipa_group: { ok: false, detail: '' },
+          freeipa_user: { ok: false, detail: '' }, nc_group: { ok: false, detail: '' },
+          nc_user: { ok: false, detail: '' }, sogo_quota: { ok: false, detail: '' },
+          odoo_company: { ok: false, detail: '' }, odoo_user: { ok: false, detail: '' } },
+        checked_at: new Date().toISOString(),
+      };
+      validationModal = fallback;
+      quickCheck[tenant.id] = { allPassing: false, failCount: 1 };
+    }
+    checkBusy[tenant.id] = false;
+  }
+
+  async function checkAll() {
+    checkAllBusy = true;
+    for (const t of tenants) {
+      if (!t.id) continue;
+      checkBusy[t.id] = true;
+      try {
+        const res  = await fetch(`/api/admin/tenant/${t.id}/check`);
+        const data = await res.json();
+        if (data && typeof data.allPassing === 'boolean') {
+          quickCheck[t.id] = { allPassing: data.allPassing, failCount: data.failCount ?? 0 };
+        }
+      } catch { /* skip failed tenants */ }
+      checkBusy[t.id] = false;
+    }
+    checkAllBusy = false;
   }
 
   async function doImpersonate(username: string, name: string) {
@@ -466,6 +792,30 @@
     submitting = false;
   }
 
+  // ── Reset Password ───────────────────────────────────────────
+  async function doResetPassword() {
+    if (!resetPwTarget) return;
+    if (!resetPwValue || resetPwValue.length < 8) { resetPwMsg = 'Password minimal 8 karakter'; return; }
+    resetPwBusy = true; resetPwMsg = '';
+    try {
+      const res = await fetch(`/api/users/${encodeURIComponent(resetPwTarget.username)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'reset_password', newPassword: resetPwValue }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        resetPwMsg = 'Password berhasil direset';
+        setTimeout(() => { resetPwTarget = null; resetPwValue = ''; resetPwMsg = ''; }, 1200);
+      } else {
+        resetPwMsg = 'Gagal: ' + (data.error ?? 'Unknown error');
+      }
+    } catch {
+      resetPwMsg = 'Koneksi gagal';
+    }
+    resetPwBusy = false;
+  }
+
   async function saveTenantBranding() {
     const tid = auth.profile.tenantId;
     if (!tid) { tenantEditMsg = 'Tenant ID tidak ditemukan'; return; }
@@ -493,7 +843,7 @@
 
   // ── Mount ───────────────────────────────────────────────────
   onMount(async () => {
-    await Promise.allSettled([fetchUsers(), fetchTenants(), fetchHealth(), fetchAuditLogs()]);
+    await Promise.allSettled([fetchUsers(), fetchTenants(), fetchHealth(), fetchAuditLogs(), fetchOnboardingRequests()]);
     loading = false;
   });
 </script>
@@ -610,6 +960,10 @@
                         onclick={() => openEditUser(u)}>
                         {@html I.edit}
                       </button>
+                      <button class="btn btn-ghost btn-sm" title="Reset Password"
+                        onclick={() => { resetPwTarget = u; resetPwValue = ''; resetPwMsg = ''; }}>
+                        {@html I.key}
+                      </button>
                       <button class="btn btn-ghost btn-sm"
                         style="color:{u.status === 'active' ? 'var(--warn)' : 'var(--ok)'}"
                         title={u.status === 'active' ? 'Suspend' : 'Aktifkan'}
@@ -630,6 +984,7 @@
       </div>
 
       {#if showAddUser}
+        {@const emailDomain = auth.profile.isAdmin ? null : (auth.profile.tenantDomain || (auth.profile.organizationSlug ? auth.profile.organizationSlug + '.opsid.web.id' : null))}
         <div class="modal-overlay" onclick={() => showAddUser = false}>
           <div class="modal" onclick={(e) => e.stopPropagation()}>
             <div class="modal-head">
@@ -640,12 +995,24 @@
               <div class="form-grid">
                 <div class="field"><label for="u-uid">Username</label><input id="u-uid" placeholder="john.doe" bind:value={newUser.username} /></div>
                 <div class="field"><label for="u-name">Nama Lengkap</label><input id="u-name" placeholder="John Doe" bind:value={newUser.fullname} /></div>
-                <div class="field"><label for="u-email">Email</label><input id="u-email" placeholder="john@opsid.web.id" bind:value={newUser.email} /></div>
+                <div class="field">
+                  <label for="u-email">Email</label>
+                  <input id="u-email"
+                    placeholder={emailDomain ? `john@${emailDomain}` : 'john@opsid.web.id'}
+                    bind:value={newUser.email}
+                  />
+                  {#if emailDomain}
+                    <span style="font-size:10px;color:var(--fg-4)">Email harus @{emailDomain}</span>
+                  {/if}
+                </div>
                 <div class="field"><label for="u-dept">Departemen</label><input id="u-dept" placeholder="Engineering" bind:value={newUser.dept} /></div>
                 <div class="field">
                   <label for="u-role">Role</label>
                   <select id="u-role" bind:value={newUser.role}>
-                    <option>Staff</option><option>Operator</option><option>Manager</option><option>Admin</option>
+                    <option value="Staff">Staff</option>
+                    <option value="Operator">Operator</option>
+                    <option value="Manager">Manager</option>
+                    <option value="org-admin">Tenant Admin</option>
                   </select>
                 </div>
                 <div class="field"><label for="u-pass">Password</label><input id="u-pass" type="password" placeholder="Min 8 karakter" bind:value={newUser.password} /></div>
@@ -687,7 +1054,11 @@
                 <div class="field">
                   <label for="eu-role">Role</label>
                   <select id="eu-role" bind:value={editForm.role}>
-                    <option>Staff</option><option>Operator</option><option>Manager</option><option>Admin</option>
+                    <option value="Staff">Staff</option>
+                    <option value="Operator">Operator</option>
+                    <option value="Manager">Manager</option>
+                    <option value="org-admin">Tenant Admin</option>
+                    <option value="Superadmin">Superadmin</option>
                   </select>
                 </div>
               </div>
@@ -741,9 +1112,14 @@
           <h1 class="page-h1">Tenant Management</h1>
           <p class="page-sub">{tenants.length} tenant terdaftar · Multi-tenant white-label</p>
         </div>
-        <button class="btn btn-primary btn-sm" onclick={() => { showAddTenant = true; slugManuallyEdited = false; }}>
-          {@html I.plus} Onboarding Tenant
-        </button>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="btn btn-secondary btn-sm" onclick={checkAll} disabled={checkAllBusy} title="Jalankan validasi semua tenant sekaligus">
+            {checkAllBusy ? '⏳' : '🔍'} Check All
+          </button>
+          <button class="btn btn-primary btn-sm" onclick={() => { showAddTenant = true; slugManuallyEdited = false; }}>
+            {@html I.plus} Onboarding Tenant
+          </button>
+        </div>
       </div>
 
       {#if loading}
@@ -763,13 +1139,24 @@
                       <code class="mono tenant-domain" style="color:{t.primary_color}">{t.domain}</code>
                     </div>
                   </div>
-                  <span class="tag tag-ok">Aktif</span>
+                  <span class="tag {t.status === 'suspended' ? 'tag-danger' : t.status === 'inactive' ? 'tag-warn' : 'tag-ok'}">
+                    {t.status === 'suspended' ? 'Suspended' : t.status === 'inactive' ? 'Tidak Aktif' : 'Aktif'}
+                  </span>
                 </div>
                 <div class="tenant-stats">
-                  <div><div class="ts-label">Users</div><div class="ts-val mono">{t.user_count ?? 0}</div></div>
+                  <div><div class="ts-label">Users</div><div class="ts-val mono">{t.user_count ?? 0}{t.max_users ? '/' + t.max_users : ''}</div></div>
                   <div><div class="ts-label">Storage</div><div class="ts-val mono">{t.plan_nextcloud_gb ?? 50} GB</div></div>
-                  <div><div class="ts-label">Slug</div><div class="ts-val mono">{t.slug}</div></div>
+                  <div><div class="ts-label">Paket</div><div class="ts-val mono" style="text-transform:capitalize">{t.plan_tier ?? 'basic'}</div></div>
                 </div>
+                {#if quickCheck[t.id]}
+                  <div class="quick-check" class:qc-ok={quickCheck[t.id].allPassing} class:qc-fail={!quickCheck[t.id].allPassing}>
+                    {#if quickCheck[t.id].allPassing}
+                      ✓ Semua layanan OK
+                    {:else}
+                      ⚠ {quickCheck[t.id].failCount} layanan bermasalah · klik Validasi untuk detail
+                    {/if}
+                  </div>
+                {/if}
                 {#if dnsResults[t.domain]}
                   {@const dr = dnsResults[t.domain]}
                   <div class="dns-result" class:dns-ok={dr.pointing} class:dns-fail={!dr.pointing && dr.resolved_ip !== '…'}>
@@ -784,10 +1171,39 @@
                     {/if}
                   </div>
                 {/if}
+                {#if sslResults[String(t.id)]}
+                  {@const sr = sslResults[String(t.id)]}
+                  <div class="ssl-result" class:ssl-ok={sr.ssl_valid} class:ssl-fail={sr.ssl_valid === false && !sslChecking[String(t.id)]}>
+                    {#if sr.ssl_valid}
+                      <span>🔒 SSL OK · {sr.ssl_subject} · {sr.ssl_issuer}</span>
+                      {#if (sr.ssl_days_left ?? 999) < 30}
+                        <span style="color:var(--warn)"> · Expires {sr.ssl_days_left}d</span>
+                      {:else}
+                        <span style="color:var(--fg-4)"> · {sr.ssl_days_left}d left</span>
+                      {/if}
+                    {:else if sr.ssl_error}
+                      <span>⚠ SSL: {sr.ssl_error}</span>
+                    {:else}
+                      <span>✗ SSL tidak valid</span>
+                    {/if}
+                  </div>
+                {/if}
                 <div class="tenant-actions">
-                  <button class="btn btn-secondary btn-sm" onclick={() => checkDns(t)}>{@html I.globe} Cek DNS</button>
+                  <button class="btn btn-primary btn-sm" onclick={() => runCheck(t)} disabled={checkBusy[t.id]}>
+                    {checkBusy[t.id] ? '⏳' : '🔍'} {checkBusy[t.id] ? 'Checking…' : 'Validasi'}
+                  </button>
+                  <button class="btn btn-secondary btn-sm" onclick={() => checkDns(t)}>{@html I.globe} DNS</button>
+                  <button class="btn btn-secondary btn-sm" onclick={() => checkSsl(t)} disabled={sslChecking[String(t.id)]}>
+                    🔒 {sslChecking[String(t.id)] ? '…' : 'SSL'}
+                  </button>
+                  <button class="btn btn-secondary btn-sm" onclick={() => { dnsWizardTarget = t; dnsWizardOpen = true; }}>
+                    {@html I.mail} Mail DNS
+                  </button>
                   <button class="btn btn-secondary btn-sm" onclick={() => { tenantUsersTarget = t; tenantUsersOpen = true; }}>
-                    {@html I.users} Kelola User
+                    {@html I.users} User
+                  </button>
+                  <button class="btn btn-secondary btn-sm" onclick={() => openEditTenant(t)}>
+                    {@html I.edit} Edit
                   </button>
                   <button class="btn btn-danger btn-sm" style="margin-left:auto" onclick={() => confirmDelete = t}>
                     {@html I.trash} Hapus
@@ -903,6 +1319,132 @@
           </div>
         </div>
       {/if}
+
+      <!-- ── Edit Tenant Modal ───────────────────────────────── -->
+      {#if editTenantTarget}
+        <div class="modal-overlay" onclick={() => editTenantTarget = null}>
+          <div class="modal" onclick={(e) => e.stopPropagation()}>
+            <div class="modal-head">
+              <h3>Edit Tenant · <span class="mono" style="font-size:13px;color:var(--fg-3)">{editTenantTarget.domain}</span></h3>
+              <button class="btn-icon" onclick={() => editTenantTarget = null}>{@html I.x}</button>
+            </div>
+            <div class="modal-body">
+              <div class="form-grid-2">
+                <div class="field" style="grid-column:span 2">
+                  <label for="et-name">Nama Tenant</label>
+                  <input id="et-name" placeholder="PT Contoh Indonesia" bind:value={editTenantForm.name} />
+                </div>
+                <div class="field">
+                  <label for="et-color">Warna Brand</label>
+                  <input id="et-color" type="color" bind:value={editTenantForm.primaryColor} style="height:40px;padding:4px" />
+                </div>
+                <div class="field">
+                  <label for="et-status">Status</label>
+                  <select id="et-status" bind:value={editTenantForm.status}>
+                    <option value="active">Aktif</option>
+                    <option value="suspended">Suspended</option>
+                    <option value="inactive">Tidak Aktif</option>
+                  </select>
+                </div>
+                <div class="field" style="grid-column:span 2">
+                  <label for="et-logo">Logo URL (opsional)</label>
+                  <input id="et-logo" placeholder="https://cdn.example.com/logo.png" bind:value={editTenantForm.logoUrl} />
+                </div>
+                <!-- Branding preview -->
+                <div class="field" style="grid-column:span 2">
+                  <label>Preview Branding</label>
+                  <div class="brand-preview" style="--bp-col:{editTenantForm.primaryColor}">
+                    <div class="brand-preview-bar">
+                      {#if editTenantForm.logoUrl}
+                        <img src={editTenantForm.logoUrl} alt="logo preview" class="brand-preview-logo"
+                             onerror={(e) => { (e.target as HTMLImageElement).style.display='none'; }} />
+                      {:else}
+                        <span class="brand-preview-icon">{editTenantForm.name?.charAt(0)?.toUpperCase() || '?'}</span>
+                      {/if}
+                      <span class="brand-preview-name">{editTenantForm.name || 'Nama Tenant'}</span>
+                    </div>
+                    <span class="brand-preview-chip" style="background:{editTenantForm.primaryColor}">{editTenantForm.primaryColor}</span>
+                  </div>
+                </div>
+                <div class="field" style="grid-column:span 2">
+                  <label>Paket Layanan</label>
+                  <div class="quota-row">
+                    <div class="field">
+                      <label for="et-tier" class="sublabel">Paket/Lisensi</label>
+                      <select id="et-tier" bind:value={editTenantForm.planTier}>
+                        <option value="basic">Basic</option>
+                        <option value="business">Business</option>
+                        <option value="enterprise">Enterprise</option>
+                      </select>
+                    </div>
+                    <div class="field">
+                      <label for="et-maxu" class="sublabel">Maks. User</label>
+                      <input id="et-maxu" type="number" min="1" bind:value={editTenantForm.maxUsers} />
+                    </div>
+                  </div>
+                </div>
+                <div class="field" style="grid-column:span 2">
+                  <label>Kuota Penyimpanan</label>
+                  <div class="quota-row">
+                    <div class="field">
+                      <label for="et-nc" class="sublabel">Nextcloud (GB)</label>
+                      <input id="et-nc" type="number" min="1" bind:value={editTenantForm.planNextcloudGb} />
+                    </div>
+                    <div class="field">
+                      <label for="et-em" class="sublabel">Email (GB)</label>
+                      <input id="et-em" type="number" min="1" bind:value={editTenantForm.planEmailGb} />
+                    </div>
+                    <div class="field">
+                      <label for="et-od" class="sublabel">Odoo (GB)</label>
+                      <input id="et-od" type="number" min="1" bind:value={editTenantForm.planOdooGb} />
+                    </div>
+                  </div>
+                </div>
+              </div>
+              {#if editTenantMsg}
+                <p style="margin-top:12px;font-size:12px;color:{editTenantMsg === 'Tersimpan' ? 'var(--ok)' : 'var(--danger)'}">
+                  {editTenantMsg}
+                </p>
+              {/if}
+            </div>
+            <div class="modal-foot">
+              <button class="btn btn-secondary" onclick={() => editTenantTarget = null}>Batal</button>
+              <button class="btn btn-primary" onclick={saveEditTenant} disabled={editTenantBusy}>
+                {editTenantBusy ? 'Menyimpan...' : 'Simpan Perubahan'}
+              </button>
+            </div>
+          </div>
+        </div>
+      {/if}
+    {/if}
+
+    <!-- ── Reset Password Modal ─────────────────────────────── -->
+    {#if resetPwTarget}
+      <div class="modal-overlay" onclick={() => resetPwTarget = null}>
+        <div class="modal" style="width:420px" onclick={(e) => e.stopPropagation()}>
+          <div class="modal-head">
+            <h3>Reset Password · <span class="mono" style="font-size:13px;color:var(--fg-3)">{resetPwTarget.username}</span></h3>
+            <button class="btn-icon" onclick={() => resetPwTarget = null}>{@html I.x}</button>
+          </div>
+          <div class="modal-body">
+            <div class="field">
+              <label for="rp-pw">Password Baru</label>
+              <input id="rp-pw" type="password" placeholder="Min 8 karakter" bind:value={resetPwValue} />
+            </div>
+            {#if resetPwMsg}
+              <p style="font-size:12px;color:{resetPwMsg.includes('berhasil') ? 'var(--ok)' : 'var(--danger)'};margin-top:6px">
+                {resetPwMsg}
+              </p>
+            {/if}
+          </div>
+          <div class="modal-foot">
+            <button class="btn btn-secondary" onclick={() => resetPwTarget = null}>Batal</button>
+            <button class="btn btn-primary" onclick={doResetPassword} disabled={resetPwBusy}>
+              {resetPwBusy ? 'Mereset…' : 'Reset Password'}
+            </button>
+          </div>
+        </div>
+      </div>
     {/if}
 
     <!-- TenantUsersModal — rendered outside tenant grid -->
@@ -910,8 +1452,23 @@
       <TenantUsersModal
         tenantId={tenantUsersTarget.id}
         tenantName={tenantUsersTarget.name}
+        tenantSlug={tenantUsersTarget.slug}
+        tenantDomain={tenantUsersTarget.domain}
         onClose={() => { tenantUsersOpen = false; tenantUsersTarget = null; }}
       />
+    {/if}
+
+    <!-- DNS Wizard Modal (superadmin — per tenant card) -->
+    {#if dnsWizardOpen && dnsWizardTarget?.id}
+      <div class="modal-overlay" onclick={() => { dnsWizardOpen = false; dnsWizardTarget = null; }}>
+        <div class="modal" style="width:680px;max-width:96vw;padding:0" onclick={(e) => e.stopPropagation()}>
+          <DnsWizard
+            tenantId={dnsWizardTarget.id}
+            tenantName={dnsWizardTarget.name}
+            onClose={() => { dnsWizardOpen = false; dnsWizardTarget = null; }}
+          />
+        </div>
+      </div>
     {/if}
 
     <!-- ═══════ TENANT PROFILE (tenant admin only) ═══════ -->
@@ -998,6 +1555,24 @@
           </div>
         </div>
       </div>
+    {/if}
+
+    <!-- ═══════ DNS & EMAIL (tenant admin only) ═══════ -->
+    {#if activeTab === 'dns-email' && auth.profile.isTenantAdmin}
+      {@const tid = auth.profile.tenantId}
+      <div class="page-head">
+        <div>
+          <h1 class="page-h1">DNS & Email Setup</h1>
+          <p class="page-sub">Konfigurasi MX, SPF, DKIM, DMARC untuk domain email kamu</p>
+        </div>
+      </div>
+      {#if tid}
+        <div class="panel" style="padding:0;overflow:hidden">
+          <DnsWizard tenantId={tid} tenantName={auth.profile.tenantName || ''} />
+        </div>
+      {:else}
+        <div class="empty-state">Tenant ID tidak ditemukan</div>
+      {/if}
     {/if}
 
     <!-- ═══════ SERVICE HEALTH ═══════ -->
@@ -1106,8 +1681,473 @@
         {/if}
       </div>
     {/if}
+
+    <!-- ═══════ PERMINTAAN (ONBOARDING) ═══════ -->
+    {#if activeTab === 'requests'}
+      <div class="page-head">
+        <div>
+          <h1 class="page-h1">Permintaan Berlangganan</h1>
+          <p class="page-sub">Formulir pendaftaran dari calon tenant · onboarding_requests</p>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <div class="filter-tabs">
+            {#each [['all','Semua'],['pending','Menunggu'],['approved','Disetujui'],['rejected','Ditolak']] as [val, lbl]}
+              <button
+                class="filter-tab"
+                class:active={onboardingFilter === val}
+                onclick={() => { onboardingFilter = val; }}
+              >{lbl}</button>
+            {/each}
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        {#if loading}
+          <div class="empty-state">Memuat data...</div>
+        {:else if onboardingReqs.length === 0}
+          <div class="empty-state">Tidak ada permintaan{onboardingFilter !== 'all' ? ' dengan status ini' : ''}</div>
+        {:else}
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Perusahaan</th>
+                <th>PIC</th>
+                <th>Email / WA</th>
+                <th>Domain</th>
+                <th style="text-align:center">User</th>
+                <th>Paket</th>
+                <th>Status</th>
+                <th>Tanggal</th>
+                <th style="text-align:center">Aksi</th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each onboardingReqs as r}
+                <tr>
+                  <td><strong style="font-size:13px">{r.company_name}</strong></td>
+                  <td>{r.pic_name}</td>
+                  <td>
+                    <div style="font-size:12px">{r.pic_email}</div>
+                    {#if r.pic_whatsapp}<div style="font-size:11px;color:var(--fg-4)">{r.pic_whatsapp}</div>{/if}
+                  </td>
+                  <td style="font-size:12px">
+                    {#if r.domain_value}
+                      <div class="mono">
+                        {r.domain_type === 'subdomain' ? r.domain_value + '.opsid.web.id' : r.domain_value}
+                      </div>
+                      <div style="font-size:10px;color:var(--fg-4);margin-top:2px">
+                        {r.domain_type === 'custom_domain' ? 'custom domain' : 'subdomain opsid'}
+                      </div>
+                    {:else}
+                      <span style="color:var(--fg-4)">—</span>
+                    {/if}
+                  </td>
+                  <td style="text-align:center" class="mono">{r.user_count}</td>
+                  <td>
+                    <span class="tag {r.plan_tier === 'enterprise' ? 'tag-warn' : r.plan_tier === 'pro' ? 'tag-pri' : 'tag-ok'}" style="font-size:10px;text-transform:capitalize">
+                      {r.plan_tier}
+                    </span>
+                  </td>
+                  <td>
+                    <span class="tag {r.status === 'approved' ? 'tag-ok' : r.status === 'rejected' ? 'tag-danger' : r.status === 'processing' ? 'tag-pri' : 'tag-warn'}" style="font-size:10px">
+                      {r.status === 'pending' ? 'Menunggu' : r.status === 'approved' ? 'Disetujui' : r.status === 'processing' ? 'Memproses…' : 'Ditolak'}
+                    </span>
+                  </td>
+                  <td style="font-size:11px;color:var(--fg-4)">
+                    {new Date(r.created_at).toLocaleDateString('id-ID', { day:'2-digit', month:'short', year:'numeric' })}
+                  </td>
+                  <td>
+                    {#if r.status === 'pending'}
+                      <div style="display:flex;gap:6px;justify-content:center">
+                        <button
+                          class="btn btn-ok btn-xs"
+                          disabled={onboardingBusy === r.id}
+                          onclick={() => reviewRequest(r, 'approved')}
+                        >
+                          {@html I.check} Setuju
+                        </button>
+                        <button
+                          class="btn btn-danger btn-xs"
+                          disabled={onboardingBusy === r.id}
+                          onclick={() => { rejectModal = r; rejectNotes = ''; }}
+                        >
+                          {@html I.x} Tolak
+                        </button>
+                      </div>
+                    {:else if r.status === 'approved'}
+                      <div style="display:flex;flex-direction:column;gap:5px;align-items:center">
+                        <div style="font-size:11px;color:var(--fg-4)">
+                          {r.reviewed_by ?? '—'}
+                          {#if r.tenant_id}
+                            <span class="mono" style="color:var(--pri)"> · tenant #{r.tenant_id}</span>
+                          {/if}
+                        </div>
+                        {#if r.provisioning_log}
+                          {@const failed = r.provisioning_log.filter((s: ProvStep) => !s.ok)}
+                          {#if failed.length}
+                            <div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:center">
+                              <button
+                                class="btn btn-warn btn-xs"
+                                disabled={reprovisionBusy === r.id}
+                                onclick={() => reprovision(r)}
+                                title={failed.map((s: ProvStep) => s.step + ': ' + s.error).join('\n')}
+                              >
+                                {reprovisionBusy === r.id ? '…' : '⟳'} Re-provision
+                              </button>
+                              <button class="btn btn-secondary btn-xs" onclick={() => provLogModal = r}>Log</button>
+                            </div>
+                          {:else}
+                            <div style="display:flex;gap:4px;justify-content:center">
+                              <span style="font-size:11px;color:var(--ok)">✓ provisioned</span>
+                              <button class="btn btn-secondary btn-xs" onclick={() => provLogModal = r}>Log</button>
+                            </div>
+                          {/if}
+                        {:else}
+                          <button class="btn btn-warn btn-xs" disabled={reprovisionBusy === r.id} onclick={() => reprovision(r)}>
+                            {reprovisionBusy === r.id ? '…' : '⟳'} Re-provision
+                          </button>
+                        {/if}
+                      </div>
+                    {:else if r.status === 'processing'}
+                      <div style="display:flex;flex-direction:column;gap:5px;align-items:center">
+                        <span style="font-size:11px;color:var(--fg-4)">Provisioning berjalan…</span>
+                        <button
+                          class="btn btn-danger btn-xs"
+                          disabled={resetProcessingBusy === r.id}
+                          onclick={() => resetProcessingRequest(r)}
+                          title="Reset ke pending jika provisioning tampak macet"
+                        >
+                          {resetProcessingBusy === r.id ? '…' : '↺'} Reset ke Pending
+                        </button>
+                      </div>
+                    {:else}
+                      <div style="text-align:center;font-size:11px;color:var(--fg-4)">
+                        {r.reviewed_by ?? '—'}
+                      </div>
+                    {/if}
+                  </td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        {/if}
+      </div>
+    {/if}
   </div>
 </div>
+
+<!-- Approve Result Modal -->
+{#if approveResult}
+  <div class="modal-backdrop" onclick={() => approveResult = null} role="presentation"></div>
+  <div class="modal" style="max-width:520px">
+    <div class="modal-header">
+      {#if approveResult.error}
+        <span style="color:var(--danger)">Provisioning Gagal</span>
+      {:else}
+        <span>Tenant Berhasil Dibuat</span>
+      {/if}
+      <button class="btn-icon" onclick={() => approveResult = null}>{@html I.x}</button>
+    </div>
+    <div class="modal-body" style="display:flex;flex-direction:column;gap:14px">
+      {#if approveResult.error}
+        <div class="prov-error">{approveResult.error}</div>
+      {:else}
+        <div class="prov-success">
+          <div class="prov-row">
+            <span class="prov-label">Tenant ID</span>
+            <span class="prov-val mono">#{approveResult.tenant?.id}</span>
+          </div>
+          <div class="prov-row">
+            <span class="prov-label">Domain</span>
+            <span class="prov-val mono">{approveResult.domain}</span>
+          </div>
+          <div class="prov-row">
+            <span class="prov-label">Admin Username</span>
+            <span class="prov-val mono">{approveResult.adminUsername}</span>
+          </div>
+          <div class="prov-row">
+            <span class="prov-label">Password Sementara</span>
+            <span class="prov-val mono prov-pw">{approveResult.adminPassword}</span>
+          </div>
+          <p class="prov-note">Password hanya ditampilkan sekali. Catat dan kirimkan ke tenant admin melalui saluran aman.</p>
+        </div>
+      {/if}
+      {#if approveResult.steps?.length}
+        <div class="prov-steps">
+          <div class="prov-steps-title">Detail Provisioning</div>
+          {#each approveResult.steps as s}
+            <div class="prov-step">
+              <span class="prov-step-icon" style="color:{s.ok ? 'var(--ok)' : 'var(--danger)'}">
+                {s.ok ? '✓' : '✗'}
+              </span>
+              <span class="prov-step-name mono">{s.step}</span>
+              {#if s.error}
+                <span class="prov-step-err">{s.error}</span>
+              {/if}
+            </div>
+          {/each}
+        </div>
+      {/if}
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-primary" onclick={() => approveResult = null}>Tutup</button>
+    </div>
+  </div>
+{/if}
+
+<!-- Reject Modal -->
+{#if rejectModal}
+  <div class="modal-backdrop" onclick={() => { rejectModal = null; rejectNotes = ''; }} role="presentation"></div>
+  <div class="modal" style="max-width:440px">
+    <div class="modal-header">
+      <span>Tolak Permintaan</span>
+      <button class="btn-icon" onclick={() => { rejectModal = null; rejectNotes = ''; }}>{@html I.x}</button>
+    </div>
+    <div class="modal-body" style="display:flex;flex-direction:column;gap:14px">
+      <p style="font-size:13px;color:var(--fg-2)">
+        Tolak permintaan dari <strong>{rejectModal.company_name}</strong>?
+      </p>
+      <label class="field-label">Catatan / Alasan Penolakan</label>
+      <textarea
+        class="field-input"
+        rows="3"
+        placeholder="Opsional — akan disimpan di database"
+        bind:value={rejectNotes}
+        style="resize:vertical"
+      ></textarea>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick={() => { rejectModal = null; rejectNotes = ''; }}>Batal</button>
+      <button
+        class="btn btn-danger"
+        disabled={onboardingBusy === rejectModal.id}
+        onclick={() => reviewRequest(rejectModal!, 'rejected', rejectNotes)}
+      >
+        {@html I.x} Konfirmasi Tolak
+      </button>
+    </div>
+  </div>
+{/if}
+
+<!-- ── Reprovision Result Modal ───────────────────────────────── -->
+{#if reprovisionResult}
+  <div class="modal-backdrop" onclick={() => reprovisionResult = null} role="presentation"></div>
+  <div class="modal" style="max-width:520px">
+    <div class="modal-header">
+      {#if reprovisionResult.error}
+        <span style="color:var(--warn)">Re-provision Selesai (ada kegagalan)</span>
+      {:else}
+        <span style="color:var(--ok)">Re-provision Berhasil</span>
+      {/if}
+      <button class="btn-icon" onclick={() => reprovisionResult = null}>{@html I.x}</button>
+    </div>
+    <div class="modal-body" style="display:flex;flex-direction:column;gap:14px">
+      {#if reprovisionResult.adminPassword}
+        <div class="prov-success">
+          <div class="prov-row">
+            <span class="prov-label">Password Admin Baru</span>
+            <span class="prov-val mono prov-pw">{reprovisionResult.adminPassword}</span>
+          </div>
+          <p class="prov-note">User admin dibuat ulang. Catat dan kirimkan password melalui saluran aman.</p>
+        </div>
+      {/if}
+      {#if reprovisionResult.steps.length}
+        <div class="prov-steps">
+          <div class="prov-steps-title">Step yang Dijalankan</div>
+          {#each reprovisionResult.steps as s}
+            <div class="prov-step">
+              <span class="prov-step-icon" style="color:{s.ok ? 'var(--ok)' : 'var(--danger)'}">
+                {s.ok ? '✓' : '✗'}
+              </span>
+              <span class="prov-step-name mono">{s.step}</span>
+              {#if s.error}<span class="prov-step-err">{s.error}</span>{/if}
+            </div>
+          {/each}
+        </div>
+      {/if}
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-primary" onclick={() => reprovisionResult = null}>Tutup</button>
+    </div>
+  </div>
+{/if}
+
+<!-- ── Provisioning Log Modal ─────────────────────────────────── -->
+{#if provLogModal}
+  <div class="modal-backdrop" onclick={() => provLogModal = null} role="presentation"></div>
+  <div class="modal" style="max-width:520px">
+    <div class="modal-header">
+      <span>Provisioning Log · <span class="mono" style="font-size:12px;color:var(--fg-3)">{provLogModal.company_name}</span></span>
+      <button class="btn-icon" onclick={() => provLogModal = null}>{@html I.x}</button>
+    </div>
+    <div class="modal-body">
+      {#if provLogModal.provisioning_log?.length}
+        <div class="prov-steps">
+          {#each provLogModal.provisioning_log as s}
+            <div class="prov-step">
+              <span class="prov-step-icon" style="color:{s.ok ? 'var(--ok)' : 'var(--danger)'}">
+                {s.ok ? '✓' : '✗'}
+              </span>
+              <span class="prov-step-name mono">{s.step}</span>
+              {#if s.error}<span class="prov-step-err">{s.error}</span>{/if}
+            </div>
+          {/each}
+        </div>
+      {:else}
+        <p style="font-size:13px;color:var(--fg-4)">
+          Tidak ada log provisioning tersimpan.<br/>
+          <span style="font-size:11px">Tenant yang dibuat sebelum v0.3.5 tidak memiliki log.
+          Klik Re-provision untuk menjalankan ulang semua step dan mengisi log.</span>
+        </p>
+      {/if}
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick={() => { const r = provLogModal!; provLogModal = null; reprovision(r); }}>
+        ⟳ Re-provision
+      </button>
+      <button class="btn btn-primary" onclick={() => provLogModal = null}>Tutup</button>
+    </div>
+  </div>
+{/if}
+
+<!-- ── Validation Modal ───────────────────────────────────────── -->
+{#if validationModal}
+  {@const vm = validationModal}
+  {@const onbId = vm.onboarding?.id}
+  <div class="modal-backdrop" onclick={() => validationModal = null} role="presentation"></div>
+  <div class="modal val-modal" onclick={(e) => e.stopPropagation()}>
+
+    <!-- Header -->
+    <div class="modal-header">
+      <div>
+        <span style="font-weight:700">{vm.tenant.name}</span>
+        <code class="mono" style="font-size:11px;color:var(--fg-4);margin-left:8px">{vm.tenant.domain}</code>
+        {#if vm.allPassing}
+          <span class="tag tag-ok" style="margin-left:8px;font-size:10px">✓ Semua OK</span>
+        {:else}
+          <span class="tag tag-danger" style="margin-left:8px;font-size:10px">⚠ {vm.failCount} gagal</span>
+        {/if}
+      </div>
+      <button class="btn-icon" onclick={() => validationModal = null}>{@html I.x}</button>
+    </div>
+
+    <div class="modal-body" style="display:flex;flex-direction:column;gap:20px;max-height:70vh;overflow-y:auto">
+
+      <!-- Checklist -->
+      <div>
+        <div class="val-section-title">Status Layanan</div>
+        <div class="val-grid">
+
+          <!-- DNS -->
+          {#if vm.checks.dns}
+            <div class="val-row">
+              <span class="val-icon" class:val-ok={vm.checks.dns.ok} class:val-fail={!vm.checks.dns.ok}>{vm.checks.dns.ok ? '✓' : '✗'}</span>
+              <span class="val-label">🌐 DNS</span>
+              <span class="val-detail">{vm.checks.dns.detail}</span>
+            </div>
+          {/if}
+
+          <!-- SSL -->
+          {#if vm.checks.ssl}
+            <div class="val-row">
+              <span class="val-icon" class:val-ok={vm.checks.ssl.ok} class:val-fail={!vm.checks.ssl.ok}>{vm.checks.ssl.ok ? '✓' : '✗'}</span>
+              <span class="val-label">🔒 SSL</span>
+              <span class="val-detail">{vm.checks.ssl.detail}</span>
+            </div>
+          {:else}
+            <div class="val-row val-skipped">
+              <span class="val-icon">—</span>
+              <span class="val-label">🔒 SSL</span>
+              <span class="val-detail">
+                <button class="btn btn-secondary" style="font-size:11px;padding:2px 8px"
+                  onclick={async () => { const tid = vm.tenant.id; checkBusy[tid] = true; const r = await fetch(`/api/admin/tenant/${tid}/check?ssl=1`).then(x=>x.json()).catch(()=>null); if (r) validationModal = r; checkBusy[tid] = false; }}>
+                  Cek SSL
+                </button>
+              </span>
+            </div>
+          {/if}
+
+          {#each [
+            ['Keycloak Org',    vm.checks.kc_org,        '🔑'],
+            ['Keycloak User',   vm.checks.kc_user,       '🔑'],
+            ['FreeIPA Group',   vm.checks.freeipa_group, '🗂'],
+            ['FreeIPA User',    vm.checks.freeipa_user,  '🗂'],
+            ['Nextcloud Group', vm.checks.nc_group,      '☁'],
+            ['Nextcloud User',  vm.checks.nc_user,       '☁'],
+            ['Dovecot Quota',   vm.checks.sogo_quota,    '📧'],
+            ['Odoo Company',    vm.checks.odoo_company,  '🏢'],
+            ['Odoo User',       vm.checks.odoo_user,     '🏢'],
+          ] as [label, chk, emoji]}
+            <div class="val-row" class:val-row-fail={!chk.ok}>
+              <span class="val-icon" class:val-ok={chk.ok} class:val-fail={!chk.ok}>{chk.ok ? '✓' : '✗'}</span>
+              <span class="val-label">{emoji} {label}</span>
+              <span class="val-detail">{chk.detail}</span>
+            </div>
+          {/each}
+        </div>
+        <div style="font-size:10px;color:var(--fg-4);margin-top:6px;text-align:right">
+          Dicek: {new Date(vm.checked_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+        </div>
+      </div>
+
+      <!-- Provisioning Log -->
+      {#if vm.provisioning_log?.length}
+        <div>
+          <div class="val-section-title">
+            Provisioning Log
+            {#if vm.onboarding}
+              <span style="font-weight:400;color:var(--fg-4);font-size:11px">
+                · req #{vm.onboarding.id} · by {vm.onboarding.reviewed_by ?? '?'}
+                {#if vm.onboarding.reviewed_at}
+                  · {new Date(vm.onboarding.reviewed_at).toLocaleDateString('id-ID', { day:'2-digit', month:'short', year:'numeric' })}
+                {/if}
+              </span>
+            {/if}
+          </div>
+          <div class="prov-steps">
+            {#each vm.provisioning_log as s}
+              {@const label = ({
+                db_tenant: 'Database Tenant', nginx: 'Nginx Config', ssl_certbot: 'SSL Certbot',
+                freeipa_group: 'FreeIPA Group', kc_org: 'Keycloak Org', freeipa_user: 'FreeIPA User',
+                kc_user: 'Keycloak User', kc_org_member: 'KC Org Member', tenant_users: 'DB tenant_users',
+                kc_redirect_uri: 'KC Redirect URI', nc_group: 'Nextcloud Group', nc_user: 'Nextcloud User',
+                sogo_quota: 'Dovecot Quota', odoo_company: 'Odoo Company', odoo_user: 'Odoo User',
+              } as Record<string,string>)[s.step] ?? s.step}
+              <div class="prov-step">
+                <span class="prov-step-icon" style="color:{s.ok ? 'var(--ok)' : 'var(--danger)'}">
+                  {s.ok ? '✓' : '✗'}
+                </span>
+                <span class="prov-step-name mono">{label}</span>
+                {#if s.error}
+                  <span class="prov-step-err" title={s.error}>{s.error.slice(0, 100)}{s.error.length > 100 ? '…' : ''}</span>
+                {/if}
+              </div>
+            {/each}
+          </div>
+        </div>
+      {:else}
+        <div style="font-size:12px;color:var(--fg-4)">Tidak ada provisioning log tersimpan untuk tenant ini.</div>
+      {/if}
+
+    </div>
+
+    <!-- Footer -->
+    <div class="modal-footer" style="gap:8px">
+      {#if !vm.allPassing && onbId}
+        <button class="btn btn-warn"
+          onclick={() => { const tid = vm.tenant.id; validationModal = null; const t = tenants.find(x => x.id === tid); if (t) { const r = onboardingReqs.find(x => x.tenant_id === tid); if (r) reprovision(r); } }}>
+          ⟳ Re-provision
+        </button>
+      {/if}
+      <button class="btn btn-secondary"
+        onclick={async () => { const tid = vm.tenant.id; checkBusy[tid] = true; const r = await fetch(`/api/admin/tenant/${tid}/check`).then(x=>x.json()).catch(()=>null); if (r) validationModal = r; checkBusy[tid] = false; }}>
+        🔄 Refresh
+      </button>
+      <button class="btn btn-primary" onclick={() => validationModal = null}>Tutup</button>
+    </div>
+  </div>
+{/if}
 
 <style>
   /* ── Layout ──────────────────────────────────────────────── */
@@ -1153,10 +2193,18 @@
   .role-badge { font-size:11px; padding:2px 10px; border-radius:20px; font-weight:500; border:1px solid; }
   .action-btns { display:flex; gap:6px; justify-content:flex-end; }
 
+  /* ── Quick check badge ───────────────────────────────────── */
+  .quick-check { font-size:11px; padding:5px 10px; border-radius:var(--r-md); margin-bottom:8px; border:1px solid var(--bd-1); background:var(--bg-2); color:var(--fg-3); }
+  .quick-check.qc-ok   { background:rgba(52,211,153,.08);  border-color:rgba(52,211,153,.3);  color:var(--ok); }
+  .quick-check.qc-fail { background:rgba(248,113,113,.08); border-color:rgba(248,113,113,.3); color:var(--danger); }
+
   /* ── DNS result ──────────────────────────────────────────── */
   .dns-result { font-size:11px; padding:6px 12px; border-radius:var(--r-md); margin-bottom:8px; border:1px solid var(--bd-1); background:var(--bg-2); color:var(--fg-3); }
   .dns-result.dns-ok { background:rgba(52,211,153,.08); border-color:rgba(52,211,153,.3); color:var(--ok); }
   .dns-result.dns-fail { background:rgba(248,113,113,.08); border-color:rgba(248,113,113,.3); color:var(--danger); }
+  .ssl-result { font-size:11px; padding:6px 12px; border-radius:var(--r-md); margin-bottom:8px; border:1px solid var(--bd-1); background:var(--bg-2); color:var(--fg-3); }
+  .ssl-result.ssl-ok  { background:rgba(52,211,153,.08); border-color:rgba(52,211,153,.3); color:var(--ok); }
+  .ssl-result.ssl-fail { background:rgba(248,113,113,.08); border-color:rgba(248,113,113,.3); color:var(--danger); }
 
   /* ── Tenant cards ────────────────────────────────────────── */
   .tenant-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:14px; }
@@ -1213,7 +2261,15 @@
   .field input:focus, .field select:focus { border-color:var(--pri); }
   .field-preview { font-size:11px; color:var(--pri); margin-top:2px; }
   .sublabel { font-size:10px !important; font-weight:500 !important; color:var(--fg-4) !important; text-transform:none !important; letter-spacing:0 !important; }
-  .quota-row { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+  .quota-row { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; width:100%; }
+  .quota-row .field { min-width:0; }
+  .brand-preview { border:1px solid var(--bd-1); border-radius:var(--r-md); overflow:hidden; background:var(--bg-2); }
+  .brand-preview-bar { display:flex; align-items:center; gap:10px; padding:10px 14px; background:var(--bp-col,#5B86FF)10; border-bottom:3px solid var(--bp-col,#5B86FF); }
+  .brand-preview-logo { height:28px; width:auto; object-fit:contain; border-radius:4px; }
+  .brand-preview-icon { width:28px; height:28px; border-radius:6px; background:var(--bp-col,#5B86FF); color:#fff; display:grid; place-items:center; font-weight:700; font-size:14px; flex-shrink:0; }
+  .brand-preview-name { font-weight:600; font-size:13px; color:var(--fg-1); }
+  .brand-preview-chip { font-size:11px; padding:2px 10px 3px; color:#fff; border-radius:999px; margin:6px 14px 8px; display:inline-block; font-family:monospace; }
+  .field input, .field select { width:100%; box-sizing:border-box; }
   .checkbox-label { display:flex; align-items:center; gap:8px; cursor:pointer; font-size:13px !important; font-weight:400 !important; letter-spacing:0 !important; text-transform:none !important; color:var(--fg-2) !important; }
   .admin-preview { padding:12px; background:var(--bg-2); border-radius:8px; border:1px solid var(--bd-1); }
   .admin-email { font-size:14px; font-weight:600; color:var(--pri); margin-top:4px; }
@@ -1236,5 +2292,71 @@
 
   /* ── Responsive ──────────────────────────────────────────── */
   @media(max-width:1100px) { .health-grid, .tenant-grid { grid-template-columns:1fr; } }
-  @media(max-width:700px) { .form-grid { grid-template-columns:1fr; } }
+  @media(max-width:700px)  { .form-grid { grid-template-columns:1fr; } }
+
+  /* Admin console table horizontal scroll on small screens */
+  @media(max-width:900px) {
+    .data-table { font-size:11px; }
+    .data-table th, .data-table td { padding:8px 6px; }
+    /* Hide less important columns on narrow screens */
+    .data-table .col-dept { display:none; }
+  }
+  @media(max-width:768px) {
+    /* Content area full width */
+    .page-head { flex-direction:column; gap:12px; align-items:flex-start; }
+    .page-head > div:last-child { width:100%; }
+    .filter-tabs { width:100%; }
+    .filter-tab { flex:1; text-align:center; }
+    /* Tenant cards stack */
+    .tenant-grid { grid-template-columns:1fr !important; }
+    /* Onboarding table: hide less important columns */
+    .data-table .col-pic-wa { display:none; }
+    .data-table .col-user-count { display:none; }
+    /* Modal full screen */
+    .modal { max-width:100vw !important; width:100vw; margin:0; border-radius:0; max-height:100dvh; }
+  }
+
+  /* ── Onboarding requests filter ──────────────────────────── */
+  .filter-tabs { display:flex; gap:4px; background:var(--bg-2); border:1px solid var(--bd-1); border-radius:var(--r-md); padding:3px; }
+  .filter-tab  { padding:5px 12px; border-radius:6px; font-size:12px; font-weight:500; color:var(--fg-3); background:transparent; border:none; cursor:pointer; transition:all .15s; }
+  .filter-tab:hover { color:var(--fg-1); }
+  .filter-tab.active { background:var(--bg-3); color:var(--fg-1); box-shadow:0 1px 3px rgba(0,0,0,.25); }
+  .btn-ok { background:rgba(52,211,153,.1); color:var(--ok); border-color:color-mix(in srgb, var(--ok) 25%, transparent); }
+  .btn-ok:hover { background:rgba(52,211,153,.18); }
+  .btn-warn { background:rgba(251,191,36,.1); color:var(--warn,#f59e0b); border-color:color-mix(in srgb, var(--warn,#f59e0b) 30%, transparent); }
+  .btn-warn:hover { background:rgba(251,191,36,.18); }
+  .btn-xs { padding:4px 10px; font-size:11px; gap:4px; }
+  .modal-footer { padding:16px 24px; border-top:1px solid var(--bd-1); display:flex; justify-content:flex-end; gap:8px; }
+  .field-label { font-size:11px; font-weight:600; color:var(--fg-3); text-transform:uppercase; letter-spacing:.04em; }
+  .field-input { background:var(--bg-2); border:1px solid var(--bd-2); border-radius:var(--r-md); padding:8px 12px; font-size:13px; color:var(--fg-1); font-family:inherit; outline:none; width:100%; box-sizing:border-box; transition:border-color .15s; }
+  .field-input:focus { border-color:var(--pri); }
+
+  /* ── Approve result modal ─────────────────────────────────── */
+  .prov-success { display:flex; flex-direction:column; gap:8px; background:var(--bg-2); border:1px solid var(--bd-1); border-radius:10px; padding:14px 16px; }
+  .prov-error   { background:rgba(248,113,113,.08); border:1px solid rgba(248,113,113,.25); border-radius:8px; padding:12px 14px; font-size:13px; color:var(--danger); }
+  .prov-row     { display:flex; gap:12px; align-items:baseline; font-size:13px; }
+  .prov-label   { width:130px; flex-shrink:0; font-size:11px; font-weight:600; color:var(--fg-4); text-transform:uppercase; letter-spacing:.04em; }
+  .prov-val     { color:var(--fg-1); }
+  .prov-pw      { background:var(--bg-3); padding:3px 8px; border-radius:5px; letter-spacing:.08em; font-size:13px; color:var(--warn); border:1px solid var(--bd-2); }
+  .prov-note    { font-size:11px; color:var(--fg-4); margin-top:4px; border-top:1px solid var(--bd-1); padding-top:10px; }
+  .prov-steps   { display:flex; flex-direction:column; gap:5px; }
+  .prov-steps-title { font-size:10px; font-weight:700; color:var(--fg-4); text-transform:uppercase; letter-spacing:.06em; margin-bottom:4px; }
+  .prov-step    { display:flex; align-items:baseline; gap:8px; font-size:12px; }
+  .prov-step-icon { font-size:13px; width:16px; flex-shrink:0; }
+  .prov-step-name { color:var(--fg-2); }
+  .prov-step-err  { color:var(--fg-4); font-size:11px; }
+
+  /* ── Validation modal ────────────────────────────────────── */
+  .val-modal { max-width:660px; width:calc(100vw - 32px); }
+  .val-section-title { font-size:10px; font-weight:700; color:var(--fg-4); text-transform:uppercase; letter-spacing:.06em; margin-bottom:8px; }
+  .val-grid  { display:flex; flex-direction:column; gap:0; border:1px solid var(--bd-1); border-radius:var(--r-md); overflow:hidden; }
+  .val-row   { display:grid; grid-template-columns:28px 180px 1fr; align-items:center; gap:8px; padding:7px 12px; font-size:12px; border-bottom:1px solid var(--bd-1); background:var(--bg-1); }
+  .val-row:last-child { border-bottom:none; }
+  .val-row-fail { background:rgba(248,113,113,.04); }
+  .val-skipped  { background:var(--bg-2); }
+  .val-icon  { font-size:13px; font-weight:700; width:20px; text-align:center; }
+  .val-ok    { color:var(--ok); }
+  .val-fail  { color:var(--danger); }
+  .val-label { font-weight:500; color:var(--fg-2); white-space:nowrap; }
+  .val-detail { color:var(--fg-4); font-size:11px; word-break:break-all; }
 </style>

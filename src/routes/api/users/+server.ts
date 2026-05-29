@@ -69,16 +69,44 @@ export const GET: RequestHandler = async ({ cookies }) => {
 
   if (!username) return json({ success: false, error: 'Not authenticated' }, { status: 401 });
 
-  // ── Superadmin: all FreeIPA users ────────────────────────────
+  // ── Superadmin: all FreeIPA users, enriched with KC realm roles ──────────────
   if (isAdmin) {
     try {
       const cookie = await ipaLogin();
       const result = await ipaCall(cookie, 'user_find', [[]], { sizelimit: 200, all: true });
       if (result.error) return json({ success: false, error: result.error.message }, { status: 400 });
 
+      // Fetch KC superadmins (users with opsid-admin realm role) — best-effort
+      const kcAdmins = new Set<string>();
+      try {
+        const kcRes = await fetch(
+          'http://10.34.1.4:8080/realms/master/protocol/openid-connect/token',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'client_id=admin-cli&grant_type=password&username=opsid-admin&password=sandiaman2026',
+          }
+        );
+        const kcTok = await kcRes.json();
+        if (kcTok.access_token) {
+          const roleRes = await fetch(
+            'http://10.34.1.4:8080/admin/realms/opsid-internal/roles/opsid-admin/users?max=200',
+            { headers: { 'Authorization': `Bearer ${kcTok.access_token}` } }
+          );
+          if (roleRes.ok) {
+            const roleUsers = await roleRes.json();
+            for (const u of roleUsers) { if (u.username) kcAdmins.add(u.username); }
+          }
+        }
+      } catch { /* enrichment is best-effort */ }
+
       const users = (result.result?.result || [])
         .filter((u: any) => !u.uid?.[0]?.startsWith('svc-') && u.uid?.[0] !== 'admin')
-        .map(mapIpaUser);
+        .map((u: any) => {
+          const base = mapIpaUser(u);
+          if (kcAdmins.has(base.username)) base.role = 'Superadmin';
+          return base;
+        });
 
       return json({ success: true, users });
     } catch (err) {
@@ -104,7 +132,7 @@ export const GET: RequestHandler = async ({ cookies }) => {
       `SELECT username, full_name, email, role, status
        FROM   tenant_users
        WHERE  tenant_id = $1
-       ORDER  BY created_at DESC`,
+       ORDER  BY id ASC`,
       [row.tenant_id]
     );
 
@@ -143,7 +171,24 @@ export const GET: RequestHandler = async ({ cookies }) => {
 
 // ── POST — create user di FreeIPA ────────────────────────────────────────────
 
-export const POST: RequestHandler = async ({ request }) => {
+export const POST: RequestHandler = async ({ request, cookies }) => {
+  // Require at minimum a valid authenticated session
+  const token   = cookies.get('opsid_token');
+  const payload = token ? decodeToken(token) : null;
+  if (!payload?.preferred_username)
+    return json({ success: false, error: 'Unauthorized' }, { status: 401 });
+  const roles: string[]  = payload?.realm_access?.roles ?? [];
+  const isAdmin = roles.includes('opsid-admin');
+  const isTenantAdmin = !isAdmin && await (async () => {
+    const row = await db.query(
+      `SELECT 1 FROM tenant_users WHERE username=$1 AND role='org-admin' AND status='active' LIMIT 1`,
+      [payload.preferred_username]
+    ).then(r => r.rows[0]).catch(() => null);
+    return !!row;
+  })();
+  if (!isAdmin && !isTenantAdmin)
+    return json({ success: false, error: 'Forbidden' }, { status: 403 });
+
   const { username, name, fullname, email, password, dept, role } = await request.json();
 
   if (!username || !(fullname || name) || !email || !password) {

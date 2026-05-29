@@ -2,9 +2,16 @@
   interface Props {
     tenantId: number;
     tenantName: string;
+    tenantSlug?: string;
+    tenantDomain?: string;
     onClose: () => void;
   }
-  let { tenantId, tenantName, onClose }: Props = $props();
+  let { tenantId, tenantName, tenantSlug, tenantDomain, onClose }: Props = $props();
+
+  // Derive the email domain for auto-fill
+  let emailDomain = $derived(
+    tenantDomain || (tenantSlug ? `${tenantSlug}.opsid.web.id` : 'opsid.web.id')
+  );
 
   const I = {
     x:      `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
@@ -32,6 +39,14 @@
   let selected = $state<TenantUser | null>(null);
 
   let addForm = $state({ username: '', fullName: '', email: '', password: '', role: 'member' });
+  let emailManuallyEdited = $state(false);
+
+  // Auto-fill email from username when username changes (unless user manually edited email)
+  $effect(() => {
+    if (addForm.username && !emailManuallyEdited) {
+      addForm.email = `${addForm.username}@${emailDomain}`;
+    }
+  });
   let resetPw = $state({ value: '' });
 
   async function loadUsers() {
@@ -122,7 +137,7 @@
     {#if view === 'list'}
       <div class="modal-toolbar">
         <span class="user-count">{users.length} user</span>
-        <button class="btn btn-primary btn-sm" onclick={() => { view = 'add'; msg = ''; }}>
+        <button class="btn btn-primary btn-sm" onclick={() => { view = 'add'; msg = ''; emailManuallyEdited = false; addForm = { username: '', fullName: '', email: '', password: '', role: 'member' }; }}>
           {@html I.plus} Tambah User
         </button>
       </div>
@@ -186,7 +201,9 @@
           </div>
           <div class="field">
             <label for="tu-email">Email</label>
-            <input id="tu-email" type="email" placeholder="budi@domain.co.id" bind:value={addForm.email} />
+            <input id="tu-email" type="email" placeholder="auto dari username"
+              bind:value={addForm.email}
+              oninput={() => emailManuallyEdited = true} />
           </div>
           <div class="field">
             <label for="tu-pass">Password Awal</label>

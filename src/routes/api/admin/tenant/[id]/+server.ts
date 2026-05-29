@@ -3,8 +3,15 @@ import type { RequestHandler } from './$types';
 import db from '$lib/db';
 
 const NGINX_API  = 'http://10.34.1.1:8080';
-const KC_BASE    = 'https://auth.opsid.web.id';
+const KC_BASE    = 'http://10.34.1.4:8080'; // internal; hairpin NAT blocks public IP from server
 const IPA_BASE   = 'https://ipa.opsid.web.id/ipa/session/json';
+
+function decodeToken(token: string): any {
+  try {
+    const b64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    return JSON.parse(Buffer.from(b64, 'base64').toString('utf8'));
+  } catch { return null; }
+}
 
 async function getKcToken(): Promise<string> {
   const res = await fetch(`${KC_BASE}/realms/master/protocol/openid-connect/token`, {
@@ -16,7 +23,22 @@ async function getKcToken(): Promise<string> {
   return d.access_token;
 }
 
-export const GET: RequestHandler = async ({ params }) => {
+// Returns { isAdmin, username } or null if unauthenticated
+function parseAuth(cookies: any): { isAdmin: boolean; username: string } | null {
+  const token = cookies.get('opsid_token');
+  if (!token) return null;
+  const p = decodeToken(token);
+  if (!p?.preferred_username) return null;
+  return {
+    isAdmin:  (p.realm_access?.roles ?? []).includes('opsid-admin'),
+    username: p.preferred_username,
+  };
+}
+
+export const GET: RequestHandler = async ({ params, cookies }) => {
+  const auth = parseAuth(cookies);
+  if (!auth) return json({ error: 'Unauthorized' }, { status: 401 });
+
   try {
     const result = await db.query(
       `SELECT t.*, COUNT(tu.id) as user_count
@@ -27,46 +49,43 @@ export const GET: RequestHandler = async ({ params }) => {
       [params.id]
     );
     if (!result.rows.length) return json({ error: 'Tenant tidak ditemukan' }, { status: 404 });
-    return json({ ok: true, tenant: result.rows[0] });
+
+    const tenant = result.rows[0];
+
+    // Non-admins may only see their own tenant
+    if (!auth.isAdmin) {
+      const ownership = await db.query(
+        `SELECT 1 FROM tenant_users WHERE username = $1 AND tenant_id = $2 AND status = 'active'`,
+        [auth.username, params.id]
+      );
+      if (!ownership.rows.length) return json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    return json({ ok: true, tenant });
   } catch (e) {
     return json({ error: String(e) }, { status: 500 });
   }
 };
 
 export const PUT: RequestHandler = async ({ params, request, cookies }) => {
-  try {
-    // Validate requester — must be superadmin or tenant admin for this exact tenant
-    const token = cookies.get('opsid_token');
-    let username = '';
-    if (token) {
-      try {
-        const b64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
-        const t = JSON.parse(Buffer.from(b64, 'base64').toString('utf8'));
-        username = t.preferred_username ?? '';
-        const roles: string[] = t.realm_access?.roles ?? [];
-        const isAdmin = roles.includes('opsid-admin');
+  const auth = parseAuth(cookies);
+  if (!auth) return json({ ok: false, error: 'Unauthorized' }, { status: 401 });
 
-        if (!isAdmin) {
-          // Verify tenant admin owns this tenant
-          const ownership = await db.query(
-            `SELECT 1 FROM tenant_users WHERE username = $1 AND tenant_id = $2 AND role = 'org-admin' AND status = 'active'`,
-            [username, params.id]
-          );
-          if (!ownership.rows.length) {
-            return json({ ok: false, error: 'Forbidden' }, { status: 403 });
-          }
-        }
-      } catch {
-        return json({ ok: false, error: 'Invalid token' }, { status: 401 });
-      }
-    } else {
-      return json({ ok: false, error: 'Not authenticated' }, { status: 401 });
+  try {
+    if (!auth.isAdmin) {
+      // Verify tenant admin owns this tenant
+      const ownership = await db.query(
+        `SELECT 1 FROM tenant_users WHERE username = $1 AND tenant_id = $2 AND role = 'org-admin' AND status = 'active'`,
+        [auth.username, params.id]
+      );
+      if (!ownership.rows.length) return json({ ok: false, error: 'Forbidden' }, { status: 403 });
     }
 
     const body = await request.json();
     const {
-      primaryColor, logoUrl,
+      name, primaryColor, logoUrl,
       planNextcloudGb, planEmailGb, planOdooGb,
+      maxUsers, planTier,
       status,
     } = body;
 
@@ -74,11 +93,14 @@ export const PUT: RequestHandler = async ({ params, request, cookies }) => {
     const values: any[] = [];
     let idx = 1;
 
-    if (primaryColor     !== undefined) { updates.push(`primary_color = $${idx++}`);       values.push(primaryColor); }
+    if (name             !== undefined) { updates.push(`name = $${idx++}`);                 values.push(String(name)); }
+    if (primaryColor     !== undefined) { updates.push(`primary_color = $${idx++}`);        values.push(primaryColor); }
     if (logoUrl          !== undefined) { updates.push(`logo_url = $${idx++}`);             values.push(logoUrl); }
     if (planNextcloudGb  !== undefined) { updates.push(`plan_nextcloud_gb = $${idx++}`);    values.push(Number(planNextcloudGb)); }
     if (planEmailGb      !== undefined) { updates.push(`plan_email_gb = $${idx++}`);        values.push(Number(planEmailGb)); }
     if (planOdooGb       !== undefined) { updates.push(`plan_odoo_gb = $${idx++}`);         values.push(Number(planOdooGb)); }
+    if (maxUsers         !== undefined) { updates.push(`max_users = $${idx++}`);            values.push(Number(maxUsers)); }
+    if (planTier         !== undefined) { updates.push(`plan_tier = $${idx++}`);            values.push(String(planTier)); }
     if (status           !== undefined) {
       updates.push(`status = $${idx++}`);
       values.push(status);
@@ -92,21 +114,25 @@ export const PUT: RequestHandler = async ({ params, request, cookies }) => {
     if (!updates.length) return json({ ok: false, error: 'Tidak ada field yang diubah' }, { status: 400 });
 
     values.push(params.id);
+
     try {
       await db.query(
-        `UPDATE tenants SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${idx}`,
+        `UPDATE tenants SET ${updates.join(', ')} WHERE id = $${idx}`,
         values
       );
     } catch (sqlErr: any) {
-      // Gracefully handle missing columns (suspended_at may not exist yet)
-      if (String(sqlErr).includes('suspended_at')) {
-        const updatesNoSuspend = updates.filter(u => !u.includes('suspended_at'));
-        if (updatesNoSuspend.length > 0) {
-          await db.query(
-            `UPDATE tenants SET ${updatesNoSuspend.join(', ')}, updated_at = NOW() WHERE id = $${idx}`,
-            values
-          );
-        }
+      // Strip optional columns that may not exist in older schema
+      const safe = updates.filter(u =>
+        !u.includes('suspended_at') &&
+        !u.includes('updated_at') &&
+        !u.includes('max_users') &&
+        !u.includes('plan_tier')
+      );
+      if (safe.length > 0) {
+        await db.query(
+          `UPDATE tenants SET ${safe.join(', ')} WHERE id = $${idx}`,
+          values
+        );
       } else {
         throw sqlErr;
       }
@@ -114,8 +140,8 @@ export const PUT: RequestHandler = async ({ params, request, cookies }) => {
 
     await db.query(
       `INSERT INTO audit_logs (actor, action, target, metadata) VALUES ($1, $2, $3, $4)`,
-      [username || 'system', 'UPDATE_TENANT', String(params.id),
-       JSON.stringify({ primaryColor, logoUrl, planNextcloudGb, planEmailGb, planOdooGb, status })]
+      [auth.username, 'UPDATE_TENANT', String(params.id),
+       JSON.stringify({ name, primaryColor, logoUrl, planNextcloudGb, planEmailGb, planOdooGb, maxUsers, planTier, status })]
     ).catch(() => null);
 
     return json({ ok: true });
@@ -124,19 +150,30 @@ export const PUT: RequestHandler = async ({ params, request, cookies }) => {
   }
 };
 
-export const DELETE: RequestHandler = async ({ params }) => {
+export const DELETE: RequestHandler = async ({ params, cookies }) => {
+  // Only superadmin can delete tenants
+  const auth = parseAuth(cookies);
+  if (!auth) return json({ ok: false, error: 'Unauthorized' }, { status: 401 });
+  if (!auth.isAdmin) return json({ ok: false, error: 'Forbidden' }, { status: 403 });
+
   try {
     const result = await db.query(`SELECT * FROM tenants WHERE id = $1`, [params.id]);
     if (!result.rows.length) return json({ error: 'Tenant tidak ditemukan' }, { status: 404 });
 
     const tenant = result.rows[0];
 
-    // 1. Hapus dari Nginx
+    // 1. Null-out onboarding_requests.tenant_id to avoid FK violation
+    await db.query(
+      `UPDATE onboarding_requests SET tenant_id = NULL WHERE tenant_id = $1`,
+      [params.id]
+    ).catch(() => null);
+
+    // 2. Hapus dari Nginx
     await fetch(`${NGINX_API}/site/${encodeURIComponent(tenant.domain)}`, {
       method: 'DELETE',
     }).catch(() => null);
 
-    // 2. Hapus Keycloak Organization
+    // 3. Hapus Keycloak Organization
     try {
       const token = await getKcToken();
       const orgsRes = await fetch(
@@ -145,28 +182,28 @@ export const DELETE: RequestHandler = async ({ params }) => {
       );
       const orgs = await orgsRes.json();
       if (Array.isArray(orgs) && orgs.length > 0) {
+        const org = orgs.find((o: any) => o.alias === tenant.slug) ?? orgs[0];
         await fetch(
-          `${KC_BASE}/admin/realms/opsid-internal/organizations/${orgs[0].id}`,
+          `${KC_BASE}/admin/realms/opsid-internal/organizations/${org.id}`,
           { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } }
         );
       }
-    } catch { /* lanjut walau gagal */ }
+    } catch { /* continue on failure */ }
 
-    // 3. Hapus FreeIPA group
+    // 4. Hapus FreeIPA group (best-effort)
     await fetch(IPA_BASE, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Referer': 'https://ipa.opsid.web.id/ipa' },
       body: JSON.stringify({ method: 'group_del', params: [[`${tenant.slug}-users`], {}] }),
     }).catch(() => null);
 
-    // 4. Hapus dari PostgreSQL
-    await db.query(`DELETE FROM tenant_users WHERE tenant_id = $1`, [params.id]);
+    // 5. Hapus dari PostgreSQL (tenant_users cascades)
     await db.query(`DELETE FROM tenants WHERE id = $1`, [params.id]);
 
-    // 5. Audit log
+    // 6. Audit log
     await db.query(
       `INSERT INTO audit_logs (actor, action, target, metadata) VALUES ($1, $2, $3, $4)`,
-      ['system', 'DELETE_TENANT', tenant.domain, JSON.stringify({ name: tenant.name, slug: tenant.slug })]
+      [auth.username, 'DELETE_TENANT', tenant.domain, JSON.stringify({ name: tenant.name, slug: tenant.slug })]
     );
 
     return json({ ok: true });
