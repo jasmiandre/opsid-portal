@@ -1,5 +1,6 @@
 <script lang="ts">
   import { auth } from '../auth.svelte';
+  import { theme } from '../theme.svelte';
   import { page } from '$app/state';
 
   const paneApps = [
@@ -31,6 +32,8 @@
     flagID:   `<svg viewBox="0 0 24 16" width="18" height="12" xmlns="http://www.w3.org/2000/svg"><rect width="24" height="8" fill="#E11D48"/><rect y="8" width="24" height="8" fill="#F4F4F5"/></svg>`,
     x:        `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M18 6 6 18M6 6l12 12"/></svg>`,
     check:    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="32" height="32"><polyline points="20 6 9 17 4 12"/></svg>`,
+    sun:      `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>`,
+    moon:     `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`,
   };
 
   function getIcon(name: string) { return (I as any)[name] ?? ''; }
@@ -128,14 +131,26 @@
       <a href="#infra">Infrastruktur</a>
       <a href="#docs">Dokumentasi</a>
     </div>
-    <div style="display:flex;gap:8px;align-items:center">
-      <span class="tag" style="display:inline-flex;align-items:center;gap:6px">
+    <div class="land-nav-right">
+      <span class="tag land-nav-tag" style="display:inline-flex;align-items:center;gap:6px">
         {@html I.flagID} Sovereign ID
       </span>
+
+      <!-- Theme toggle pill -->
+      <button
+        class="land-theme-pill"
+        onclick={() => theme.toggle()}
+        aria-label="Ganti tema"
+        title={theme.isDark ? 'Ganti ke tema terang' : 'Ganti ke tema gelap'}
+      >
+        <span class="lt-ico" class:lt-active={theme.isLight}>{@html I.sun}</span>
+        <span class="lt-ico" class:lt-active={theme.isDark}>{@html I.moon}</span>
+      </button>
+
       <button class="btn btn-ghost btn-sm" onclick={() => auth.login()}>
         Masuk {@html I.arrowR}
       </button>
-      <button class="btn btn-primary btn-sm" onclick={openForm}>
+      <button class="btn btn-primary btn-sm land-nav-subscribe" onclick={openForm}>
         Mulai Berlangganan
       </button>
     </div>
@@ -276,7 +291,7 @@
                 placeholder="sample@gmail.com"
                 bind:value={form.pic_email}
               />
-              <span style="font-size:11px;color:#64748b">
+              <span style="font-size:11px;color:var(--fg-3)">
                 Email ini digunakan untuk menerima welcome mail, kredensial login, dan instruksi DNS.
               </span>
             </div>
@@ -288,7 +303,7 @@
             <div class="field">
               <label for="ob-primary-name">Nama User Utama *</label>
               <input id="ob-primary-name" type="text" placeholder="Jasmi Andrea" bind:value={form.primary_user_name} />
-              <span style="font-size:11px;color:#64748b">
+              <span style="font-size:11px;color:var(--fg-3)">
                 Nama akun pertama yang akan menjadi admin tenant.
               </span>
             </div>
@@ -296,7 +311,7 @@
             <div class="field">
               <label for="ob-primary-email">Email User Utama *</label>
               <input id="ob-primary-email" type="email" placeholder="jasmi@1go.biz.id" bind:value={form.primary_user_email} />
-              <span style="font-size:11px;color:#64748b">
+              <span style="font-size:11px;color:var(--fg-3)">
                 Email ini digunakan untuk login ke Portal, Mail, Drive, Calendar, dan Odoo.
               </span>
             </div>
@@ -391,7 +406,7 @@
   /* ── Onboarding Modal ───────────────────────────────────── */
   .ob-backdrop {
     position: fixed; inset: 0;
-    background: rgba(8,9,11,.80);
+    background: rgba(0,0,0,.55);
     backdrop-filter: blur(6px);
     z-index: 300;
     display: grid;
@@ -407,7 +422,7 @@
     max-width: 600px;
     max-height: 90vh;
     overflow-y: auto;
-    box-shadow: 0 40px 80px -20px rgba(0,0,0,.9);
+    box-shadow: var(--shadow);
   }
 
   .ob-head {
@@ -441,7 +456,7 @@
     border-radius: 8px;
     padding: 10px 14px;
     font-size: 13px;
-    color: #ff8080;
+    color: var(--danger);
     margin-bottom: 14px;
   }
 
@@ -577,5 +592,28 @@
   @media (max-width: 600px) {
     .ob-grid { grid-template-columns: 1fr; }
     .ob-plans { grid-template-columns: 1fr; }
+    .ob-domain-field { grid-column: span 1; }
+  }
+
+  /* ── Mobile nav — sembunyikan item yang tidak penting ────── */
+  .land-nav-right { display:flex; gap:8px; align-items:center; }
+
+  @media(max-width:640px) {
+    .land-nav-tag       { display:none; }
+    .land-nav-subscribe { display:none; }
+  }
+
+  /* ── Modal onboarding — bottom sheet di HP ───────────────── */
+  @media(max-width:520px) {
+    .ob-backdrop { align-items:flex-end; padding:0; }
+    .ob-modal {
+      border-radius:var(--r-lg) var(--r-lg) 0 0;
+      max-height:92vh;
+      max-width:100%;
+    }
+    .ob-body { padding:14px 16px 8px; }
+    .ob-foot { padding:10px 16px 20px; }
+    .ob-head { padding:14px 16px 12px; }
+    .ob-plans { grid-template-columns:1fr; }
   }
 </style>

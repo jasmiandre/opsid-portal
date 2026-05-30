@@ -65,9 +65,13 @@ class AuthState {
     const username  = t.preferred_username ?? '';
     const roles: string[] = t.realm_access?.roles ?? [];
 
+    // Compute fullName from given_name + family_name (NOT t.name which comes from
+    // LDAP 'cn' and may contain the full name duplicated, e.g. "Jasmi Andre Andre").
+    const fullNameRaw = `${firstName} ${lastName}`.trim() || firstName;
+
     this.profile = {
       firstName, lastName,
-      fullName:  t.name ?? `${firstName} ${lastName}`.trim(),
+      fullName: fullNameRaw,
       initials:  ((firstName[0] ?? '') + (lastName[0] ?? '')).toUpperCase() || 'U',
       username,
       email:           t.email ?? '',

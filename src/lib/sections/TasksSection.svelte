@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ThemeToggle from '../components/ThemeToggle.svelte';
   import { auth } from '../auth.svelte';
   import { APP_URLS } from '../config';
   import { onMount } from 'svelte';

@@ -45,7 +45,7 @@
 
 </script>
 
-<aside class="sidebar">
+<aside class="sidebar" class:mob-open={ui.sidebarOpen}>
   <!-- Brand -->
   <div class="sidebar-head">
     <div class="brand" onclick={() => navigate('dashboard')} role="button" tabindex="0" onkeydown={(e) => e.key==='Enter' && navigate('dashboard')}>
@@ -59,6 +59,10 @@
         <div class="brand-sub">Workspace</div>
       </div>
     </div>
+    <!-- Close button — visible on mobile only -->
+    <button class="mob-sb-close" onclick={() => ui.sidebarOpen = false} aria-label="Tutup menu">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
   </div>
 
   <div class="sb-scroll">
@@ -159,4 +163,36 @@
   .user-strip-info { flex:1; min-width:0; }
   .user-strip-name { font-size:12px; font-weight:600; color:var(--fg-1); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .user-strip-role { font-size:10px; color:var(--fg-4); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+  /* ── Mobile close button — hidden on desktop ─────── */
+  .mob-sb-close { display:none; }
+
+  /* ── Mobile: sidebar as fixed overlay drawer ─────── */
+  @media(max-width:768px) {
+    .sidebar {
+      position:fixed !important;
+      top:0; left:0;
+      height:100vh !important;
+      width:280px;
+      z-index:100;
+      transform:translateX(-100%);
+      transition:transform .28s cubic-bezier(.4,0,.2,1);
+      box-shadow:4px 0 32px rgba(0,0,0,.5);
+    }
+    .sidebar.mob-open {
+      transform:translateX(0);
+    }
+    .sidebar-head {
+      display:flex; align-items:center; justify-content:space-between;
+      padding:14px 16px 14px; border-bottom:1px solid var(--bd-1);
+    }
+    .mob-sb-close {
+      display:flex; align-items:center; justify-content:center;
+      width:34px; height:34px; border-radius:var(--r-md);
+      color:var(--fg-3); background:none; border:none; cursor:pointer;
+      transition:.12s; flex-shrink:0;
+    }
+    .mob-sb-close:hover { background:var(--bg-2); color:var(--fg-1); }
+  }
+
 </style>

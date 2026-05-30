@@ -3,6 +3,7 @@
   import { ui }   from '../ui.svelte';
   import { APP_URLS, tenantAppUrls } from '../config';
   import { onMount } from 'svelte';
+  import ThemeToggle from '../components/ThemeToggle.svelte';
 
   const _host   = typeof window !== 'undefined' ? window.location.hostname : 'opsid.web.id';
   const _appUrls = tenantAppUrls(_host);
@@ -215,6 +216,9 @@
           </div>
         {/if}
       </div>
+
+      <!-- Theme toggle -->
+      <ThemeToggle />
 
       <!-- Notification bell -->
       <div class="notif-dropdown" style="position:relative">
@@ -532,7 +536,57 @@
   .file-icon { flex-shrink:0; }
   .file-name { font-size:13px; font-weight:500; color:var(--fg-1); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
-  /* ── Responsive ──────────────────────────────────────────── */
+  /* ── Responsive desktop ─────────────────────────────────── */
   @media(max-width:1200px) { .stat-grid { grid-template-columns:repeat(2,1fr); } }
   @media(max-width:900px)  { .split { grid-template-columns:1fr; } }
+
+  /* ── Mobile (≤768px) ─────────────────────────────────────── */
+  @media(max-width:768px) {
+    /* Topbar: compact */
+    .topbar { padding:0 14px; height:48px; }
+    .crumb  { display:none; }
+
+    /* Hide search bar — too wide for mobile */
+    .topbar-search { display:none; }
+
+    /* Userchip: hide text, show only avatar */
+    .userchip { padding:4px; border-radius:50%; background:none; border:none; }
+    .uc-name  { display:none; }
+    .uc-role  { display:none; }
+
+    /* Page header */
+    .main-pad { padding:16px 14px; gap:16px; }
+    .page-head { flex-direction:column; align-items:flex-start; gap:10px; }
+    .page-h1   { font-size:20px; }
+    .page-sub  { font-size:12px; }
+
+    /* Stat cards: 1 column */
+    .stat-grid { grid-template-columns:1fr; gap:10px; }
+    .stat-val  { font-size:26px; }
+
+    /* Quick access: row of 3 (compact) */
+    .quick-row  { padding:14px 12px; gap:8px; }
+    .quick-tile { padding:18px 6px; gap:8px; min-height:90px; }
+    .quick-label { font-size:11px; }
+
+    /* Split: already 1-col at 900px, keep */
+
+    /* Inbox rows: reduce padding */
+    .inbox-row  { padding:10px 14px; }
+    .agenda-row { padding:10px 14px; }
+    .file-row   { padding:9px 14px; }
+
+    /* Panel head: smaller */
+    .panel-head { padding:10px 14px; }
+    .empty-state { padding:20px; font-size:12px; }
+
+    /* Hide kbd shortcut hint */
+    .kbd { display:none; }
+  }
+
+  /* ── Very small screens (≤400px) ─────────────────────────── */
+  @media(max-width:400px) {
+    .quick-tile { padding:14px 4px; gap:6px; }
+    .page-h1    { font-size:18px; }
+  }
 </style>

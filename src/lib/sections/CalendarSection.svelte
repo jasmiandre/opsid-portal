@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ThemeToggle from '../components/ThemeToggle.svelte';
   import { auth } from '../auth.svelte';
 
   const I = {
@@ -9,13 +10,15 @@
   // SOGo Calendar URL — nginx auth_request handles SSO using opsid_token cookie.
   //
   // URL strategy:
-  //   opsid.web.id / *.opsid.web.id  → https://mail.opsid.web.id/SOGo/  (existing vhost)
-  //   custom-domain tenant            → https://{host}/SOGo/             (proxied via tenant nginx)
+  //   opsid.web.id (root)       → https://mail.opsid.web.id/SOGo/  (direct, frame-ancestors allows it)
+  //   *.opsid.web.id (tenant)   → https://{host}/SOGo/             (nginx proxies + strips X-Frame)
+  //   custom-domain tenant      → https://{host}/SOGo/             (nginx proxies + strips X-Frame)
   //
-  // NOTE — future portal_domain ≠ mail_domain: same as MailSection. See that file.
+  // NOTE: jangan gunakan mail.opsid.web.id untuk *.opsid.web.id subdomains —
+  // frame-ancestors di nginx hanya allow opsid.web.id, bukan subdomainnya.
   const _sogoHost   = typeof window !== 'undefined' ? window.location.hostname : 'opsid.web.id';
-  const _isNative   = _sogoHost === 'opsid.web.id' || _sogoHost.endsWith('.opsid.web.id');
-  const SOGO_ORIGIN = _isNative ? 'https://mail.opsid.web.id' : `https://${_sogoHost}`;
+  const _isRootPortal = _sogoHost === 'opsid.web.id';
+  const SOGO_ORIGIN = _isRootPortal ? 'https://mail.opsid.web.id' : `https://${_sogoHost}`;
 
   let username   = $derived(auth.profile.username || '');
   let sogoCalUrl = $derived(`${SOGO_ORIGIN}/SOGo/so/${username}/Calendar/`);

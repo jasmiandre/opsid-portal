@@ -353,8 +353,19 @@ async function createKeycloakOrg(slug: string, name: string, domain: string): Pr
     body: JSON.stringify({ name, alias: slug, domains: [{ name: domain, verified: false }] }),
   });
   if (res.status === 201) {
+    // Try Location header first (standard KC response)
     const loc = res.headers.get('location');
-    return loc ? loc.split('/').pop() ?? null : null;
+    if (loc) {
+      const fromLoc = loc.split('/').pop() ?? null;
+      if (fromLoc) return fromLoc;
+    }
+    // Fallback: search by alias (Location header missing in some KC versions)
+    const searchRes = await fetch(
+      `${KC_BASE}/admin/realms/opsid-internal/organizations?search=${encodeURIComponent(slug)}&exact=true`,
+      { headers: { 'Authorization': `Bearer ${token}` } }
+    );
+    const orgs: any[] = await searchRes.json().catch(() => []);
+    return orgs.find((o: any) => o.alias === slug)?.id ?? null;
   }
   const text = await res.text().catch(() => '');
   throw new Error(`KC org create status ${res.status}: ${text.slice(0, 200)}`);
@@ -364,15 +375,31 @@ async function createKeycloakOrg(slug: string, name: string, domain: string): Pr
 function deriveUsernameFromEmail(email: string, domain: string): string {
   const local = email.split('@')[0].toLowerCase().replace(/[^a-z0-9._-]/g, '');
 
-  const parts = domain.toLowerCase().split('.');
-  const tenantShort = parts.length >= 3 ? parts[1] : parts[0];
+  // Pilih bagian identitas tenant:
+  //
+  // OPSID subdomain (*.opsid.web.id):
+  //   → gunakan label pertama domain → "atom.opsid.web.id"  = "atom"
+  //   → "kreasinus.opsid.web.id" = "kreasinus"
+  //
+  // Custom domain (tidak berakhiran .opsid.web.id):
+  //   → gunakan label pertama EMAIL domain, bukan portal domain
+  //   → karena portal domain sering generik ("workspace", "portal", "app")
+  //   → dedi@1ds.biz.id  + portal.1ds.biz.id  → "1ds"  (bukan "portal")
+  //   → andrean@1go.biz.id + workspace.1go.biz.id → "1go" (bukan "workspace")
+  let tenantShort: string;
+  const lowerDomain = domain.toLowerCase();
 
-  let username = `${local}.${tenantShort}`.replace(/[^a-z0-9._-]/g, '');
-
-  if (username.length > 32) {
-    username = username.slice(0, 32);
+  if (lowerDomain === 'opsid.web.id' || lowerDomain.endsWith('.opsid.web.id')) {
+    // OPSID subdomain: pakai label pertama portal domain
+    tenantShort = lowerDomain.split('.')[0];
+  } else {
+    // Custom domain: pakai label pertama email domain
+    const emailDomain = (email.split('@')[1] ?? '').toLowerCase();
+    tenantShort = emailDomain.split('.')[0] || lowerDomain.split('.')[0];
   }
 
+  let username = `${local}.${tenantShort}`.replace(/[^a-z0-9._-]/g, '');
+  if (username.length > 32) username = username.slice(0, 32);
   return username;
 }
 
@@ -442,6 +469,13 @@ export async function syncKcClientRedirectUri(domain: string): Promise<void> {
   const newPostLogout  = `https://${domain}`;
   const newPostLogout2 = `https://${domain}/*`;
 
+  // Root portal URIs — selalu pastikan ada (fix logout dari opsid.web.id)
+  const rootUris = [
+    'https://opsid.web.id',
+    'https://opsid.web.id/*',
+    'https://*.opsid.web.id/*',
+  ];
+
   const existing   = client.redirectUris  ?? [];
   const existingWO = client.webOrigins    ?? [];
 
@@ -450,12 +484,15 @@ export async function syncKcClientRedirectUri(domain: string): Promise<void> {
   const existingPost: string[]  = existingPostRaw.split('##').map((s: string) => s.trim()).filter(Boolean);
 
   // 2. Idempotent: skip if all already present
-  const alreadyHasPost = existingPost.includes(newPostLogout) && existingPost.includes(newPostLogout2);
+  const alreadyHasPost = existingPost.includes(newPostLogout) && existingPost.includes(newPostLogout2)
+    && rootUris.every(u => existingPost.includes(u));
   if (existing.includes(newRedirect) && existingWO.includes(newOrigin) && alreadyHasPost) return;
 
   const redirectUris = Array.from(new Set([...existing,     newRedirect]));
   const webOrigins   = Array.from(new Set([...existingWO,   newOrigin]));
-  const postLogout   = Array.from(new Set([...existingPost, newPostLogout, newPostLogout2])).join('##');
+  const postLogout   = Array.from(new Set([
+    ...existingPost, ...rootUris, newPostLogout, newPostLogout2,
+  ])).join('##');
 
   const updatedClient = {
     ...client,
@@ -532,7 +569,7 @@ async function createFreeIPAUser(slug: string, adminUsername: string, adminName:
   await ipaCall(cookie, 'user_add', [username], {
     givenname:        names[0],
     sn:               names.slice(1).join(' ') || slug,
-    cn:               adminName,
+    cn:               names[0],   // KC mapper: cn → firstName; set to first name only
     mail:             adminEmail,
     userpassword:     adminPassword,
     departmentnumber: [slug],
@@ -892,18 +929,20 @@ export async function provisionTenant(input: ProvisionInput): Promise<ProvisionR
     const msg = String(e);
     const conflict = msg.includes('409') || msg.includes('already exists');
     steps.push({ step: 'kc_org', ok: conflict, error: conflict ? undefined : msg });
-    if (conflict) {
-      // Recover existing orgId so membership assignment still works
-      try {
-        const token = await getKcToken();
-        const r = await fetch(
-          `${KC_BASE}/admin/realms/opsid-internal/organizations?search=${encodeURIComponent(slug)}`,
-          { headers: { 'Authorization': `Bearer ${token}` } }
-        );
-        const orgs: any[] = await r.json().catch(() => []);
-        orgId = orgs.find((o: any) => o.alias === slug)?.id ?? null;
-      } catch { /* best-effort */ }
-    }
+  }
+
+  // Recovery: if orgId is still null (org created but Location header missing,
+  // OR org already existed from a conflict), search by alias.
+  if (!orgId) {
+    try {
+      const token = await getKcToken();
+      const r = await fetch(
+        `${KC_BASE}/admin/realms/opsid-internal/organizations?search=${encodeURIComponent(slug)}&exact=true`,
+        { headers: { 'Authorization': `Bearer ${token}` } }
+      );
+      const orgs: any[] = await r.json().catch(() => []);
+      orgId = orgs.find((o: any) => o.alias === slug)?.id ?? null;
+    } catch { /* best-effort */ }
   }
 
   // ── Step 5: FreeIPA user (best-effort, idempotent) ───────────
@@ -931,18 +970,36 @@ export async function provisionTenant(input: ProvisionInput): Promise<ProvisionR
   }
 
   // ── Step 6b: KC org membership ────────────────────────────────
-  // Always push a step result so provisioning_log is complete
-  if (kcUserId && orgId) {
-    try {
-      await assignOrgMember(orgId, kcUserId);
-      steps.push({ step: 'kc_org_member', ok: true });
-    } catch (e: any) {
-      steps.push({ step: 'kc_org_member', ok: false, error: String(e) });
+  // Retry up to 3x with 1s delay — KC search index sometimes lags after user create.
+  if (orgId) {
+    if (!kcUserId) {
+      // One extra lookup with small delay before giving up
+      await new Promise(r => setTimeout(r, 1500));
+      kcUserId = await findKcUserByUsername(adminUsername).catch(() => null);
+    }
+    if (kcUserId) {
+      let memberOk = false;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          await assignOrgMember(orgId, kcUserId);
+          memberOk = true;
+          break;
+        } catch (e: any) {
+          if (attempt < 2) await new Promise(r => setTimeout(r, 1000));
+          else steps.push({ step: 'kc_org_member', ok: false, error: String(e) });
+        }
+      }
+      if (memberOk) steps.push({ step: 'kc_org_member', ok: true });
+    } else {
+      steps.push({
+        step: 'kc_org_member', ok: false,
+        error: `skipped: kcUserId=null orgId=${orgId}`,
+      });
     }
   } else {
     steps.push({
       step: 'kc_org_member', ok: false,
-      error: `skipped: kcUserId=${kcUserId ?? 'null'} orgId=${orgId ?? 'null'}`,
+      error: `skipped: orgId=null`,
     });
   }
 
@@ -980,14 +1037,30 @@ export async function provisionTenant(input: ProvisionInput): Promise<ProvisionR
   // NOTE: We intentionally do NOT create a local Database user in NC.
   // The FreeIPA user was created in step 6; here we force NC's LDAP connector
   // to register it immediately, then set quota + group.
-  // Creating a local DB user would conflict with OIDC soft-auto-provisioning
-  // (user_oidc would create an admin.username_NNNN copy instead of reusing the
-  // LDAP user).
+  // Creating a local DB user would conflict with OIDC soft-auto-provisioning.
+  //
+  // Retry logic: occ ldap:check-user triggers sync but NC may need 1-3s to
+  // fully commit the user before OCS setQuota/addToGroup works (OCS 998 = not found).
   try {
-    await provisionNcLdapUser(adminUsername);           // force LDAP → NC sync
-    await setNcQuota(adminUsername, planNextcloudGb);   // non-fatal if user not in NC yet
-    await addNcUserToGroup(adminUsername, slug);        // non-fatal if user not in NC yet
-    steps.push({ step: 'nc_user', ok: true });
+    await provisionNcLdapUser(adminUsername);
+    let ncOk = false;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt > 0) {
+        // Wait for NC LDAP to finish committing the user, then re-trigger check
+        await new Promise(r => setTimeout(r, 2500));
+        await provisionNcLdapUser(adminUsername).catch(() => {});
+      }
+      try {
+        await setNcQuota(adminUsername, planNextcloudGb);
+        await addNcUserToGroup(adminUsername, slug);
+        ncOk = true;
+        break;
+      } catch (ncErr: any) {
+        // 998 = user not found in NC yet — retry
+        if (!String(ncErr).includes('998') || attempt === 2) throw ncErr;
+      }
+    }
+    steps.push({ step: 'nc_user', ok: ncOk });
   } catch (e: any) {
     steps.push({ step: 'nc_user', ok: false, error: String(e) });
   }
@@ -1004,8 +1077,8 @@ export async function provisionTenant(input: ProvisionInput): Promise<ProvisionR
   try {
     const odooSess    = await odooGetSession();
     const companyId   = await getOrCreateOdooCompany(odooSess, slug, name, domain);
-    const odooLogin   = `admin@${domain}`;
-    await getOrCreateOdooUser(odooSess, odooLogin, adminName, companyId);
+    // Gunakan adminEmail (email user utama) sebagai Odoo login agar sesuai SSO
+    await getOrCreateOdooUser(odooSess, adminEmail, adminName, companyId);
     steps.push({ step: 'odoo_company', ok: true });
     steps.push({ step: 'odoo_user',    ok: true });
   } catch (e: any) {

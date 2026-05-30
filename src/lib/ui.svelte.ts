@@ -28,6 +28,9 @@ class UIState {
   // +page.svelte watches this and updates scene accordingly.
   pendingScene      = $state<string | null>(null);
 
+  // Mobile sidebar visibility (overlay drawer)
+  sidebarOpen       = $state(false);
+
   // Notification badge — refreshed by Dashboard / Sidebar
   notifCount        = $state(0);
   notifList         = $state<Array<{ id: string; type: string; message: string; time: string }>>([]);

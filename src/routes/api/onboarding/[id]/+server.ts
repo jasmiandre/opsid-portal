@@ -143,27 +143,38 @@ export const PUT: RequestHandler = async ({ params, request, cookies }) => {
     console.error('[Onboarding] Failed to update request after provisioning:', String(e));
   }
 
-  // ── Send welcome email to the primary user (the actual admin login) ──
-  // If primary_user_email differs from pic_email, send to primary user first,
-  // then CC the PIC contact as well.
-  const primaryEmail = (row.primary_user_email || row.pic_email).trim().toLowerCase();
-  const primaryName  = row.primary_user_name  || row.pic_name;
+  // ── Send welcome email ──────────────────────────────────────────────
+  // Strategi:
+  //   1. SELALU kirim ke pic_email (email kontak PIC, pasti bisa diterima)
+  //   2. Kirim ke primary_user_email HANYA jika berbeda dari pic_email
+  //      DAN bukan pada domain yang baru di-provision (yang mungkin belum ada mailbox)
+  //      Contoh: anggita@atom.opsid.web.id → skip (domain baru, mailbox belum ready)
+  //              dedi@1ds.biz.id → kirim (domain eksternal sudah ada)
+  const picEmail     = (row.pic_email || '').trim().toLowerCase();
+  const primaryEmail = (row.primary_user_email || picEmail).trim().toLowerCase();
+  const adminUser    = result.adminUsername ?? primaryEmail.split('@')[0];
+
+  // 1. Kirim ke PIC — selalu reliable (external email)
   sendWelcomeEmail({
-    toEmail:  primaryEmail,
-    toName:   primaryName,
+    toEmail:  picEmail,
+    toName:   row.pic_name,
     company:  row.company_name,
     domain,
-    username: result.adminUsername ?? primaryEmail.split('@')[0],
+    username: adminUser,
     password: adminPassword,
-  }).catch((e) => console.error('[Onboarding] Welcome email failed:', String(e)));
-  // Also notify the PIC contact if different from the primary user
-  if (row.pic_email && row.pic_email.toLowerCase() !== primaryEmail) {
+  }).catch(e => console.error('[Onboarding] PIC welcome email failed:', String(e)));
+
+  // 2. Kirim ke primary user email jika:
+  //    - Berbeda dari PIC email
+  //    - Bukan pada domain workspace yang baru saja di-provision (belum ada mailbox)
+  const onNewDomain = primaryEmail.endsWith('@' + domain);
+  if (primaryEmail && primaryEmail !== picEmail && !onNewDomain) {
     sendWelcomeEmail({
-      toEmail:  row.pic_email.trim().toLowerCase(),
-      toName:   row.pic_name,
+      toEmail:  primaryEmail,
+      toName:   row.primary_user_name || row.pic_name,
       company:  row.company_name,
       domain,
-      username: result.adminUsername ?? primaryEmail.split('@')[0],
+      username: adminUser,
       password: adminPassword,
     }).catch(() => null);
   }

@@ -881,7 +881,7 @@
     <div class="tab-bar">
       {#each tabs as t (t.id)}
         <button class="tab-btn" class:active={activeTab === t.id} onclick={() => activeTab = t.id}>
-          {@html t.icon} {t.label}
+          {@html t.icon} <span class="tab-label">{t.label}</span>
         </button>
       {/each}
     </div>
@@ -914,8 +914,8 @@
             <thead>
               <tr>
                 <th>User</th>
-                <th>Email</th>
-                <th>Departemen</th>
+                <th class="col-email">Email</th>
+                <th class="col-dept">Departemen</th>
                 <th>Role</th>
                 <th>Status</th>
                 <th style="text-align:right">Aksi</th>
@@ -934,8 +934,8 @@
                       </div>
                     </div>
                   </td>
-                  <td class="email-cell">{u.email}</td>
-                  <td>{u.dept}</td>
+                  <td class="col-email email-cell">{u.email}</td>
+                  <td class="col-dept">{u.dept}</td>
                   <td>
                     <span class="role-badge" style="color:{rc.color};background:{rc.bg};border-color:{rc.bd}">
                       {u.role}
@@ -2302,30 +2302,97 @@
   /* ── Empty state ─────────────────────────────────────────── */
   .empty-state { padding:48px 24px; text-align:center; color:var(--fg-3); font-size:13px; }
 
-  /* ── Responsive ──────────────────────────────────────────── */
+  /* ── Responsive desktop ─────────────────────────────────── */
   @media(max-width:1100px) { .health-grid, .tenant-grid { grid-template-columns:1fr; } }
   @media(max-width:700px)  { .form-grid { grid-template-columns:1fr; } }
 
-  /* Admin console table horizontal scroll on small screens */
+  /* Admin console table: tighter at 900px */
   @media(max-width:900px) {
     .data-table { font-size:11px; }
     .data-table th, .data-table td { padding:8px 6px; }
-    /* Hide less important columns on narrow screens */
     .data-table .col-dept { display:none; }
   }
+
+  /* ── Mobile (≤768px) ─────────────────────────────────────── */
   @media(max-width:768px) {
-    /* Content area full width */
-    .page-head { flex-direction:column; gap:12px; align-items:flex-start; }
-    .page-head > div:last-child { width:100%; }
-    .filter-tabs { width:100%; }
-    .filter-tab { flex:1; text-align:center; }
-    /* Tenant cards stack */
-    .tenant-grid { grid-template-columns:1fr !important; }
-    /* Onboarding table: hide less important columns */
+    /* Topbar: compact */
+    .topbar { padding:0 14px; height:48px; }
+    .topbar-search { display:none; }
+
+    /* Main pad: reduced padding */
+    .main-pad { padding:14px; gap:16px; }
+
+    /* Page head */
+    .page-head { flex-direction:column; gap:10px; align-items:flex-start; }
+    .page-head > div:last-child { width:100%; display:flex; flex-wrap:wrap; gap:6px; }
+    .page-h1 { font-size:20px; }
+
+    /* Tab bar: horizontally scrollable */
+    .tab-bar {
+      overflow-x:auto; align-self:stretch; flex-shrink:0;
+      -webkit-overflow-scrolling:touch;
+    }
+    .tab-bar::-webkit-scrollbar { display:none; }
+    .tab-btn { flex-shrink:0; padding:7px 11px; font-size:12px; white-space:nowrap; }
+
+    /* Search box: full width */
+    .search-box { flex:1; min-width:0; width:auto; }
+
+    /* Filter tabs */
+    .filter-tabs { width:100%; overflow-x:auto; }
+    .filter-tab  { flex:1; text-align:center; }
+
+    /* Table: horizontal scroll */
+    .panel { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+    .data-table { min-width:480px; }
+    .data-table th, .data-table td { padding:10px 10px; }
+    /* Hide email & dept columns */
+    .data-table .col-email { display:none; }
     .data-table .col-pic-wa { display:none; }
     .data-table .col-user-count { display:none; }
-    /* Modal full screen */
-    .modal { max-width:100vw !important; width:100vw; margin:0; border-radius:0; max-height:100dvh; }
+    /* Action buttons: tighter */
+    .action-btns { gap:3px; }
+    .action-btns .btn { padding:5px 7px; }
+
+    /* Tenant cards stack */
+    .tenant-grid { grid-template-columns:1fr !important; }
+    .tenant-inner { padding:14px; }
+    .tenant-stats { gap:8px; }
+    /* Tenant actions: wrap */
+    .tenant-actions { flex-wrap:wrap; gap:6px; }
+    .tenant-actions .btn { font-size:11px; padding:5px 9px; }
+
+    /* Health grid: 1-col */
+    .health-grid { grid-template-columns:1fr !important; }
+
+    /* Modal: bottom sheet */
+    .modal-overlay { align-items:flex-end; padding:0; }
+    .modal {
+      max-width:100vw !important; width:100vw; margin:0;
+      border-radius:var(--r-lg) var(--r-lg) 0 0;
+      max-height:92dvh; overflow-y:auto;
+    }
+    .modal-body { overflow-y:auto; }
+
+    /* Form grid: 1-col on mobile */
+    .form-grid   { grid-template-columns:1fr !important; }
+    .form-grid-2 { grid-template-columns:1fr !important; }
+    /* span overrides → reset to 1 */
+    .form-grid   > [style*="span"] { grid-column:span 1 !important; }
+    .form-grid-2 > [style*="span"] { grid-column:span 1 !important; }
+    .quota-row { grid-template-columns:1fr !important; }
+    .tp-grid { grid-template-columns:1fr; }
+
+    /* Validation modal */
+    .val-modal { width:100vw; max-width:100vw; }
+    .val-row { grid-template-columns:24px 1fr; }
+    .val-detail { display:none; } /* hide detail text on mobile to save space */
+  }
+
+  /* ── Very small (≤480px): icon-only tabs ─────────────────── */
+  @media(max-width:480px) {
+    .tab-label { display:none; }
+    .tab-btn { padding:8px 11px; gap:0; }
   }
 
   /* ── Onboarding requests filter ──────────────────────────── */
