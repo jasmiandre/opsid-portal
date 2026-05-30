@@ -14,6 +14,7 @@ function decodeToken(token: string): any {
 // Re-runs all non-DB provisioning steps for an approved onboarding request.
 // Optional body: { only: string[] } — subset of step names to retry.
 export const POST: RequestHandler = async ({ params, request, cookies }) => {
+  console.log('REPROVISION ROUTE HIT', params.id);
   // ── Auth ──────────────────────────────────────────────────────
   const token = cookies.get('opsid_token');
   if (!token) return json({ ok: false, error: 'Unauthorized' }, { status: 401 });

@@ -1,28 +1,10 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import db from '$lib/db';
+import { requireTenantAccess } from '$lib/server/authHelpers';
 
 const MAIL_API = 'http://10.34.1.6:8082';
 const MX_HOST  = 'mail.opsid.web.id';
-
-// ── Auth helpers ──────────────────────────────────────────────────────────
-
-function decodeToken(token: string): any {
-  try {
-    const b64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
-    return JSON.parse(Buffer.from(b64, 'base64').toString('utf8'));
-  } catch { return null; }
-}
-
-function getAuth(cookies: any): { ok: boolean; isAdmin: boolean; tenantId?: number } {
-  const token = cookies.get('opsid_token');
-  if (!token) return { ok: false, isAdmin: false };
-  const claims = decodeToken(token);
-  if (!claims) return { ok: false, isAdmin: false };
-  const isAdmin = (claims.realm_access?.roles ?? []).includes('opsid-admin');
-  const orgSlug  = claims.org_slug ?? claims.organization_slug ?? null;
-  return { ok: true, isAdmin, orgSlug };
-}
 
 // ── Static record templates ───────────────────────────────────────────────
 
@@ -67,8 +49,8 @@ function _extractP(full_txt: string): string {
 // ── GET — read mail domain config from DB ─────────────────────────────────
 
 export const GET: RequestHandler = async ({ params, cookies }) => {
-  const auth = getAuth(cookies);
-  if (!auth.ok) return json({ ok: false, error: 'Unauthorized' }, { status: 401 });
+  const auth = await requireTenantAccess(cookies, params.id);
+  if (!auth.ok) return json({ ok: false, error: auth.error }, { status: auth.status });
 
   const { rows } = await db.query(
     `SELECT id, name, domain, mail_domain, dkim_selector, dkim_public_key,
@@ -81,13 +63,30 @@ export const GET: RequestHandler = async ({ params, cookies }) => {
 
   const t = rows[0];
 
-  // Tenant admin: only allow their own tenant
-  if (!auth.isAdmin) {
-    const myTenant = await db.query(
-      `SELECT id FROM tenants WHERE slug = $1`, [auth.orgSlug]
-    );
-    if (!myTenant.rows.length || String(myTenant.rows[0].id) !== String(params.id))
-      return json({ ok: false, error: 'Forbidden' }, { status: 403 });
+  // When mail_domain is not set, derive a suggestion from the org-admin's email
+  let suggested_domain: string | null = null;
+  if (!t.mail_domain) {
+    const adminRow = await db.query(
+      `SELECT email FROM tenant_users
+       WHERE  tenant_id = $1 AND role = 'org-admin' AND status = 'active'
+       ORDER  BY id ASC LIMIT 1`,
+      [params.id]
+    ).then(r => r.rows[0]).catch(() => null);
+
+    if (adminRow?.email) {
+      const parts = String(adminRow.email).split('@');
+      if (parts.length === 2 && parts[1].includes('.')) {
+        suggested_domain = parts[1].toLowerCase();
+      }
+    }
+
+    // Fallback: strip first subdomain label from tenant domain (workspace.1go.biz.id → 1go.biz.id)
+    if (!suggested_domain && t.domain) {
+      const labels = String(t.domain).split('.');
+      if (labels.length >= 3) {
+        suggested_domain = labels.slice(1).join('.');
+      }
+    }
   }
 
   const records = t.mail_domain
@@ -95,12 +94,13 @@ export const GET: RequestHandler = async ({ params, cookies }) => {
     : null;
 
   return json({
-    ok: true,
-    mail_domain:       t.mail_domain,
-    dkim_selector:     t.dkim_selector ?? 'mail',
-    dkim_public_key:   t.dkim_public_key,
-    dkim_generated_at: t.dkim_generated_at,
-    dns_checked_at:    t.dns_checked_at,
+    ok:                true,
+    mail_domain:       t.mail_domain       || null,
+    suggested_domain:  suggested_domain,
+    dkim_selector:     t.dkim_selector     ?? 'mail',
+    dkim_public_key:   t.dkim_public_key   || null,
+    dkim_generated_at: t.dkim_generated_at || null,
+    dns_checked_at:    t.dns_checked_at    || null,
     dns_mx_ok:         t.dns_mx_ok,
     dns_spf_ok:        t.dns_spf_ok,
     dns_dkim_ok:       t.dns_dkim_ok,
@@ -112,17 +112,8 @@ export const GET: RequestHandler = async ({ params, cookies }) => {
 // ── POST — set mail domain + generate DKIM ────────────────────────────────
 
 export const POST: RequestHandler = async ({ params, cookies, request }) => {
-  const auth = getAuth(cookies);
-  if (!auth.ok) return json({ ok: false, error: 'Unauthorized' }, { status: 401 });
-
-  // Tenant admin: only allow their own tenant
-  if (!auth.isAdmin) {
-    const myTenant = await db.query(
-      `SELECT id FROM tenants WHERE slug = $1`, [auth.orgSlug]
-    );
-    if (!myTenant.rows.length || String(myTenant.rows[0].id) !== String(params.id))
-      return json({ ok: false, error: 'Forbidden' }, { status: 403 });
-  }
+  const auth = await requireTenantAccess(cookies, params.id);
+  if (!auth.ok) return json({ ok: false, error: auth.error }, { status: auth.status });
 
   const body        = await request.json();
   const mail_domain = (body.mail_domain ?? '').trim().toLowerCase();

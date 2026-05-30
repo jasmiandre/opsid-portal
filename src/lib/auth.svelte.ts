@@ -51,7 +51,7 @@ class AuthState {
   login()  { this.kc?.login({ redirectUri: window.location.origin + '/' }); }
   logout() {
     this.#clearCookie();
-    this.kc?.logout({ redirectUri: window.location.origin });
+    this.kc?.logout({ redirectUri: window.location.origin + '/' });
   }
 
   get token(): string | undefined { return this.kc?.token; }
@@ -102,23 +102,31 @@ class AuthState {
     }
   }
 
+  #cookieDomain(host: string): string {
+    if (host === 'opsid.web.id' || host.endsWith('.opsid.web.id')) {
+      // Share across all *.opsid.web.id subdomains (files., erp., etc.)
+      return 'domain=.opsid.web.id; ';
+    }
+    const labels = host.split('.');
+    if (labels.length >= 3) {
+      // Custom-domain tenant: e.g. workspace.1go.biz.id → .1go.biz.id
+      // Setting domain=.{eTLD+1} makes the cookie available to drive.X and erp.X
+      // which are same-site siblings, so nginx can inject Bearer on all app vhosts.
+      const baseDomain = labels.slice(1).join('.');
+      return `domain=.${baseDomain}; `;
+    }
+    return '';
+  }
+
   #saveCookie() {
     if (!this.kc?.token) return;
-    // For opsid subdomains, set domain=.opsid.web.id so all subdomains share the session.
-    // For custom domains (e.g. workspace.1go.biz.id), omit domain so cookie is host-only.
     const host = window.location.hostname;
-    const domainPart = (host === 'opsid.web.id' || host.endsWith('.opsid.web.id'))
-      ? 'domain=.opsid.web.id; '
-      : '';
-    document.cookie = `opsid_token=${this.kc.token}; path=/; ${domainPart}max-age=3600; SameSite=Lax; Secure`;
+    document.cookie = `opsid_token=${this.kc.token}; path=/; ${this.#cookieDomain(host)}max-age=3600; SameSite=Lax; Secure`;
   }
 
   #clearCookie() {
     const host = window.location.hostname;
-    const domainPart = (host === 'opsid.web.id' || host.endsWith('.opsid.web.id'))
-      ? 'domain=.opsid.web.id; '
-      : '';
-    document.cookie = `opsid_token=; path=/; ${domainPart}max-age=0`;
+    document.cookie = `opsid_token=; path=/; ${this.#cookieDomain(host)}max-age=0`;
   }
 
   #scheduleRefresh(origin: string) {

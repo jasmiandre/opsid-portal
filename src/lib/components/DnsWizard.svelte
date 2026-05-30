@@ -31,6 +31,7 @@
   }
   interface Config {
     mail_domain: string | null;
+    suggested_domain: string | null;
     dkim_selector: string;
     dkim_public_key: string | null;
     dkim_generated_at: string | null;
@@ -62,7 +63,7 @@
       const data = await res.json();
       if (data.ok) {
         config      = data;
-        domainInput = data.mail_domain ?? '';
+        domainInput = data.mail_domain ?? data.suggested_domain ?? '';
       } else {
         loadErr = data.error ?? 'Gagal memuat konfigurasi';
       }
@@ -155,6 +156,14 @@
   <!-- ── Step 1: domain input ──────────────────────────────────── -->
   <div class="section">
     <label class="section-label" for="wiz-domain">Mail Domain</label>
+
+    {#if !config.mail_domain && config.suggested_domain}
+      <div class="suggest-banner">
+        <span>🔍</span>
+        <span>Domain email terdeteksi: <strong>{config.suggested_domain}</strong>. Konfirmasi lalu klik <em>Setup DKIM</em> untuk mengaktifkan.</span>
+      </div>
+    {/if}
+
     <div class="domain-row">
       <input id="wiz-domain"
         class="domain-input"
@@ -331,6 +340,10 @@
   .section { padding:18px 20px; border-bottom:1px solid var(--bd-1); }
   .section:last-child { border-bottom:none; }
   .section-label { font-size:11px; font-weight:600; color:var(--fg-3); text-transform:uppercase; letter-spacing:.05em; margin-bottom:10px; display:block; }
+
+  .suggest-banner { display:flex; align-items:flex-start; gap:8px; margin-bottom:10px; padding:10px 14px; background:rgba(91,134,255,.07); border:1px solid rgba(91,134,255,.2); border-radius:var(--r-sm); font-size:12px; color:var(--fg-2); line-height:1.5; }
+  .suggest-banner strong { color:var(--pri); }
+  .suggest-banner em { font-style:normal; color:var(--pri); font-weight:600; }
 
   .domain-row { display:flex; gap:8px; align-items:center; }
   .domain-input { flex:1; height:36px; padding:0 12px; background:var(--bg-2); border:1px solid var(--bd-1); border-radius:var(--r-sm); color:var(--fg-1); font-size:13px; }

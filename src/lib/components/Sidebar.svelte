@@ -1,9 +1,12 @@
 <script lang="ts">
   import { auth } from '../auth.svelte';
   import { ui } from '../ui.svelte';
-  import { APP_URLS } from '../config';
+  import { tenantAppUrls } from '../config';
   import type { Scene } from '../types';
   import { page } from '$app/state';
+
+  const _host   = typeof window !== 'undefined' ? window.location.hostname : 'opsid.web.id';
+  const _erpUrl = tenantAppUrls(_host).erpUrl;
 
   interface Props {
     scene: Scene;
@@ -85,7 +88,7 @@
         {@html I.drive} Drive
       </button>
       <button class="nav-item" class:active={!!ui.currentApp && ui.currentApp.key === 'erp'}
-        onclick={() => { ui.closeApp(); ui.openApp('erp', APP_URLS.erp, 'Odoo ERP'); }}>
+        onclick={() => { ui.closeApp(); ui.openApp('erp', _erpUrl, 'Odoo ERP'); }}>
         {@html I.erp} Odoo ERP
       </button>
     </div>

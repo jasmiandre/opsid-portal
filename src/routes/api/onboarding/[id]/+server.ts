@@ -143,15 +143,30 @@ export const PUT: RequestHandler = async ({ params, request, cookies }) => {
     console.error('[Onboarding] Failed to update request after provisioning:', String(e));
   }
 
-  // ── Send welcome email to customer (fire-and-forget) ──────────
+  // ── Send welcome email to the primary user (the actual admin login) ──
+  // If primary_user_email differs from pic_email, send to primary user first,
+  // then CC the PIC contact as well.
+  const primaryEmail = (row.primary_user_email || row.pic_email).trim().toLowerCase();
+  const primaryName  = row.primary_user_name  || row.pic_name;
   sendWelcomeEmail({
-    toEmail:  row.pic_email,
-    toName:   row.pic_name,
+    toEmail:  primaryEmail,
+    toName:   primaryName,
     company:  row.company_name,
     domain,
-    username: result.adminUsername ?? `admin.${slug}`,
+    username: result.adminUsername ?? primaryEmail.split('@')[0],
     password: adminPassword,
   }).catch((e) => console.error('[Onboarding] Welcome email failed:', String(e)));
+  // Also notify the PIC contact if different from the primary user
+  if (row.pic_email && row.pic_email.toLowerCase() !== primaryEmail) {
+    sendWelcomeEmail({
+      toEmail:  row.pic_email.trim().toLowerCase(),
+      toName:   row.pic_name,
+      company:  row.company_name,
+      domain,
+      username: result.adminUsername ?? primaryEmail.split('@')[0],
+      password: adminPassword,
+    }).catch(() => null);
+  }
 
   return json({
     ok:            true,

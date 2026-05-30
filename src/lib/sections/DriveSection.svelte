@@ -1,21 +1,24 @@
 <script lang="ts">
-  import { auth } from '../auth.svelte';
-
   const I = {
     arrowUR: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="11" height="11"><path d="M7 17 17 7"/><path d="M8 7h9v9"/></svg>`,
     refresh: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></svg>`,
   };
 
-  // Nextcloud URL strategy — mirrors MailSection logic:
-  //   opsid.web.id / *.opsid.web.id  → files.opsid.web.id via user_oidc SSO
-  //   custom-domain tenant            → https://{host}/nc/  (proxied via tenant nginx)
+  // Cookie sharing strategy (set in auth.svelte.ts #cookieDomain):
+  //   opsid.web.id / *.opsid.web.id  → domain=.opsid.web.id  → shared to files.opsid.web.id
+  //   workspace.1go.biz.id           → domain=.1go.biz.id    → shared to drive.1go.biz.id
   //
-  // nginx strips X-Frame-Options and sets frame-ancestors for all opsid.web.id origins,
-  // so embedding works without browser framing errors.
-  const _host   = typeof window !== 'undefined' ? window.location.hostname : 'opsid.web.id';
-  const driveUrl = _host === 'opsid.web.id' || _host.endsWith('.opsid.web.id')
-    ? 'https://files.opsid.web.id/apps/user_oidc/login/1?redirect_url=/apps/files/'
-    : `https://${_host}/nc/apps/user_oidc/login/1?redirect_url=/apps/files/`;
+  // nginx on each drive vhost injects: Authorization: Bearer $cookie_opsid_token
+  // NC user_oidc validates the KC token (bearerProvisioning:1) → auto-login → /apps/files/
+  // No overlay, no extra click needed — same UX as OPSID native domain.
+  const _host    = typeof window !== 'undefined' ? window.location.hostname : 'opsid.web.id';
+  const isCustom = !(_host === 'opsid.web.id' || _host.endsWith('.opsid.web.id'));
+
+  const driveHost = isCustom
+    ? `drive.${_host.split('.').slice(1).join('.')}`
+    : 'files.opsid.web.id';
+
+  const driveUrl = `https://${driveHost}/apps/user_oidc/login/1?redirect_url=/apps/files/`;
 
   let loading = $state(true);
   let iframe  = $state<HTMLIFrameElement | null>(null);
@@ -23,9 +26,8 @@
   function reload() {
     if (!iframe) return;
     loading = true;
-    const src = driveUrl;
     iframe.src = '';
-    setTimeout(() => { if (iframe) iframe.src = src; }, 30);
+    setTimeout(() => { if (iframe) iframe.src = driveUrl; }, 30);
   }
 
   function onLoad() { loading = false; }
@@ -36,7 +38,7 @@
     <div class="crumb"><strong>Drive</strong> <span class="crumb-sub">— Nextcloud</span></div>
     <div class="topbar-right">
       <button class="btn btn-secondary btn-sm" onclick={reload}>{@html I.refresh} Muat Ulang</button>
-      <a class="btn btn-secondary btn-sm" href={driveUrl} target="_blank" rel="noopener">
+      <a class="btn btn-secondary btn-sm" href={driveUrl} target="_blank" rel="noopener noreferrer">
         Buka di Tab Baru {@html I.arrowUR}
       </a>
     </div>

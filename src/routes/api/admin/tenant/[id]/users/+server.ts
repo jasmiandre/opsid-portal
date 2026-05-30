@@ -36,13 +36,19 @@ function requireAdminOrOwner(cookies: any, tenantId: string): Promise<{ ok: fals
       const b64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
       const p   = JSON.parse(Buffer.from(b64, 'base64').toString('utf8'));
       const username: string = p.preferred_username ?? '';
+      const email: string = p.email ?? '';
       if (!username) return { ok: false as const, res: json({ ok: false, error: 'Unauthorized' }, { status: 401 }) as Response };
       const isAdmin: boolean = (p.realm_access?.roles ?? []).includes('opsid-admin');
       if (!isAdmin) {
-        // Must be org-admin of this specific tenant
+        // Must be org-admin of this specific tenant. Match by username OR email
+        // because Keycloak preferred_username may differ from tenant_users.username.
         const own = await db.query(
-          `SELECT 1 FROM tenant_users WHERE username=$1 AND tenant_id=$2 AND role='org-admin' AND status='active'`,
-          [username, tenantId]
+          `SELECT 1 FROM tenant_users
+            WHERE (username=$1 OR lower(email)=lower($2))
+              AND tenant_id=$3
+              AND role='org-admin'
+              AND status='active'`,
+          [username, email, tenantId]
         );
         if (!own.rows.length) return { ok: false as const, res: json({ ok: false, error: 'Forbidden' }, { status: 403 }) as Response };
       }

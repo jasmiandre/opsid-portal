@@ -2136,7 +2136,19 @@
     <div class="modal-footer" style="gap:8px">
       {#if !vm.allPassing && onbId}
         <button class="btn btn-warn"
-          onclick={() => { const tid = vm.tenant.id; validationModal = null; const t = tenants.find(x => x.id === tid); if (t) { const r = onboardingReqs.find(x => x.tenant_id === tid); if (r) reprovision(r); } }}>
+          onclick={() => {
+              const reqId = onbId;
+              const tenantId = vm.tenant.id;
+              const companyName = vm.tenant.name;
+              validationModal = null;
+              if (reqId) {
+                reprovision({
+                  id: reqId,
+                  tenant_id: tenantId,
+                  company_name: companyName
+                } as OnboardingRequest);
+              }
+            }}>
           ⟳ Re-provision
         </button>
       {/if}

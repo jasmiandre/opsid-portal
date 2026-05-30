@@ -1,0 +1,558 @@
+<script lang="ts">
+  import { auth } from '../auth.svelte';
+  import { page } from '$app/state';
+
+  const paneApps = [
+    { tile:'mail',   ic:'mail',   name:'SOGo Mail',    host:'mail.opsid.web.id' },
+    { tile:'cloud',  ic:'cloud',  name:'Nextcloud',    host:'files.opsid.web.id' },
+    { tile:'erp',    ic:'box',    name:'Odoo ERP',     host:'erp.opsid.web.id' },
+    { tile:'key',    ic:'key',    name:'Keycloak SSO', host:'auth.opsid.web.id' },
+    { tile:'shield', ic:'shield', name:'FreeIPA',      host:'ipa.opsid.web.id' },
+  ];
+
+  const features = [
+    { n:'01', ic:'lock',     t:'True Single Sign-On', d:'Login sekali via Keycloak. Akses semua aplikasi tanpa password tambahan.', m:'KEYCLOAK · OIDC' },
+    { n:'02', ic:'shield',   t:'Kedaulatan Data',     d:'Infrastruktur 100% on-premise. Data tidak pernah keluar dari server Anda.', m:'BARE-METAL · ID-DC' },
+    { n:'03', ic:'building', t:'Multi-Tenant',        d:'Onboarding klien baru dalam hitungan menit. White-label per domain.', m:'NGINX · SSL · REALM' },
+    { n:'04', ic:'chart',    t:'Monitoring Real-time',d:'Prometheus + Grafana memantau 11 VM. Alert otomatis jika ada anomali.', m:'PROM · ALERT · 1m' },
+  ];
+
+  const I = {
+    lock:     `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>`,
+    arrowR:   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>`,
+    arrowUR:  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M7 17 17 7"/><path d="M8 7h9v9"/></svg>`,
+    shield:   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/></svg>`,
+    building: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><rect x="4" y="3" width="16" height="18" rx="1.5"/><path d="M9 21V12h6v9"/><path d="M9 7h2M13 7h2M9 10h2M13 10h2"/></svg>`,
+    chart:    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M3 3v18h18"/><path d="m7 14 3-3 4 4 6-7"/></svg>`,
+    mail:     `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>`,
+    cloud:    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M17.5 19a4.5 4.5 0 1 0-1.4-8.78A6 6 0 1 0 6 14h11.5"/></svg>`,
+    box:      `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>`,
+    key:      `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><circle cx="7.5" cy="15.5" r="3.5"/><path d="m10 13 8-8 3 3-3 3-2-2-2 2"/></svg>`,
+    flagID:   `<svg viewBox="0 0 24 16" width="18" height="12" xmlns="http://www.w3.org/2000/svg"><rect width="24" height="8" fill="#E11D48"/><rect y="8" width="24" height="8" fill="#F4F4F5"/></svg>`,
+    x:        `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M18 6 6 18M6 6l12 12"/></svg>`,
+    check:    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="32" height="32"><polyline points="20 6 9 17 4 12"/></svg>`,
+  };
+
+  function getIcon(name: string) { return (I as any)[name] ?? ''; }
+
+  // ── Onboarding form state ──────────────────────────────────
+  let showForm   = $state(false);
+  let submitted  = $state(false);
+  let submitting = $state(false);
+  let formError  = $state('');
+
+  let form = $state({
+    company_name:  '',
+    pic_name:      '',
+    pic_email:     '',
+    pic_whatsapp:  '',
+    domain_type:   'subdomain' as 'subdomain' | 'custom_domain',
+    domain_value:  '',
+    user_count:    '10',
+    plan_tier:     'basic',
+  });
+
+  let domainPreview = $derived(
+    form.domain_type === 'subdomain'
+      ? (form.domain_value ? form.domain_value + '.opsid.web.id' : '')
+      : form.domain_value
+  );
+
+  let branding = $derived(page.data?.branding ?? { tenant_name: 'OPSID', logo_url: '', primary_color: '#5B86FF' });
+  let isOpsid  = $derived(branding.tenant_name === 'OPSID');
+
+  function openForm() { showForm = true; submitted = false; formError = ''; }
+  function closeForm() { showForm = false; }
+
+  async function submitForm() {
+    formError = '';
+    if (!form.company_name.trim()) { formError = 'Nama perusahaan wajib diisi.'; return; }
+    if (!form.pic_name.trim())     { formError = 'Nama PIC wajib diisi.'; return; }
+    if (!form.pic_email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.pic_email))
+      { formError = 'Email tidak valid.'; return; }
+
+    submitting = true;
+    try {
+      const res = await fetch('/api/onboarding', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          company_name:  form.company_name,
+          pic_name:      form.pic_name,
+          pic_email:     form.pic_email,
+          pic_whatsapp:  form.pic_whatsapp,
+          domain_type:   form.domain_type,
+          domain_value:  form.domain_value,
+          user_count:    parseInt(form.user_count) || 10,
+          plan_tier:     form.plan_tier,
+        }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        submitted = true;
+      } else {
+        formError = data.error ?? 'Terjadi kesalahan. Coba lagi.';
+      }
+    } catch {
+      formError = 'Gagal terhubung ke server. Coba lagi.';
+    } finally {
+      submitting = false;
+    }
+  }
+</script>
+
+<div class="land">
+  <!-- Nav -->
+  <nav class="land-nav">
+    <div class="brand">
+      {#if branding.logo_url}
+        <img src={branding.logo_url} alt={branding.tenant_name} class="brand-logo" style="height:44px" />
+      {:else}
+        <img src="/brand/opsid-logo.png" alt={branding.tenant_name} class="brand-logo" style="height:44px" />
+      {/if}
+      <div>
+        <div class="brand-name">{branding.tenant_name}</div>
+        <div class="brand-sub">{isOpsid ? 'Open Platform Sovereign Indonesia' : 'Workspace'}</div>
+      </div>
+    </div>
+    <div class="land-nav-links">
+      <a href="#platform">Platform</a>
+      <a href="#aplikasi">Aplikasi</a>
+      <a href="#infra">Infrastruktur</a>
+      <a href="#docs">Dokumentasi</a>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <span class="tag" style="display:inline-flex;align-items:center;gap:6px">
+        {@html I.flagID} Sovereign ID
+      </span>
+      <button class="btn btn-ghost btn-sm" onclick={() => auth.login()}>
+        Masuk {@html I.arrowR}
+      </button>
+      <button class="btn btn-primary btn-sm" onclick={openForm}>
+        Mulai Berlangganan
+      </button>
+    </div>
+  </nav>
+
+  <!-- Hero -->
+  <section class="hero">
+    <div>
+      <div class="hero-eyebrow">
+        <span class="badge">v1.0</span>
+        Hackathon IDCloudHost · OpenSuite · Project Sovereign
+      </div>
+      <h1>Satu portal untuk seluruh<br/>workspace digital Anda. <em>Dimiliki sepenuhnya, di tanah sendiri.</em></h1>
+      <p class="hero-lead">
+        {branding.tenant_name} menyatukan email, file, ERP dan identitas dalam satu sign-on
+        yang berjalan di infrastruktur Anda — bukan di server luar.
+      </p>
+      <div class="hero-cta">
+        <button class="btn btn-primary" onclick={openForm}>
+          Mulai Berlangganan {@html I.arrowR}
+        </button>
+        <button class="btn btn-ghost" onclick={() => auth.login()}>
+          {@html I.lock} Masuk dengan SSO
+        </button>
+      </div>
+      <div class="hero-trust">
+        <div><span class="num">11</span> VM dipantau real-time</div>
+        <div><span class="num">100%</span> on-premise & sovereign</div>
+        <div><span class="num">&lt;30s</span> onboard user baru</div>
+      </div>
+    </div>
+
+    <!-- Pane kanan -->
+    <div class="hero-pane" aria-hidden="true">
+      <div class="pane-bar">
+        <i></i><i></i><i></i>
+        <span class="pane-url">opsid.web.id / dashboard</span>
+      </div>
+      {#each paneApps as a (a.name)}
+        <div class="pane-app">
+          <span class="tile tile-sm tile-{a.tile}">{@html getIcon(a.ic)}</span>
+          <div>
+            <div class="pa-name">{a.name}</div>
+            <div class="pa-host">{a.host}</div>
+          </div>
+          <span class="pa-status">
+            <span class="dot dot-pulse" style="color:var(--ok)"></span> Aktif
+          </span>
+        </div>
+      {/each}
+    </div>
+  </section>
+
+  <!-- Trust row -->
+  <section class="trust-row">
+    <div class="trust-cell"><div class="l">Realm</div><div class="v mono">opsid-internal</div></div>
+    <div class="trust-cell"><div class="l">Identity Provider</div><div class="v">FreeIPA + Keycloak</div></div>
+    <div class="trust-cell"><div class="l">Stack</div><div class="v">SOGo · Nextcloud · Odoo</div></div>
+    <div class="trust-cell"><div class="l">Monitoring</div><div class="v">Prometheus + Grafana</div></div>
+  </section>
+
+  <!-- Feature deck -->
+  <section class="feat-deck">
+    <div class="feat-deck-head">
+      <h2>Bangun di atas standar terbuka, dijalankan di server Anda.</h2>
+      <p>Empat pilar yang membedakan OPSID dari workspace publik. Setiap komponen bersifat open-source, dapat diaudit, dan tidak menitipkan data Anda ke pihak ketiga.</p>
+    </div>
+    <div class="feat-grid">
+      {#each features as f (f.n)}
+        <div class="feat-cell">
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <span class="ic">{@html getIcon(f.ic)}</span>
+            <span class="num">{f.n}</span>
+          </div>
+          <h3>{f.t}</h3>
+          <p>{f.d}</p>
+          <span class="meta">{f.m}</span>
+        </div>
+      {/each}
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="land-foot">
+    <span>© 2026 {branding.tenant_name}{isOpsid ? ' — IDCloudHost OpenSuite Hackathon · Project Sovereign' : ''}</span>
+    <div style="display:flex;gap:20px">
+      <a href="https://auth.opsid.web.id" target="_blank" rel="noopener">Keycloak</a>
+      <a href="https://monitor.opsid.web.id" target="_blank" rel="noopener">Grafana</a>
+      <a href="#">Status</a>
+      <a href="#">Dokumentasi</a>
+    </div>
+  </footer>
+</div>
+
+<!-- ── Onboarding Form Modal ──────────────────────────────── -->
+{#if showForm}
+  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+  <div class="ob-backdrop" onclick={(e) => { if (e.target === e.currentTarget) closeForm(); }}>
+    <div class="ob-modal">
+      <div class="ob-head">
+        <div>
+          <div class="ob-title">Mulai Berlangganan</div>
+          <div class="ob-sub">Tim kami akan menghubungi Anda dalam 1×24 jam kerja.</div>
+        </div>
+        <button class="btn btn-icon btn-soft" onclick={closeForm} aria-label="Tutup">
+          {@html I.x}
+        </button>
+      </div>
+
+      {#if submitted}
+        <!-- Success state -->
+        <div class="ob-success">
+          <div class="ob-check">{@html I.check}</div>
+          <h3>Terima kasih, {form.pic_name.split(' ')[0]}!</h3>
+          <p>Permintaan dari <strong>{form.company_name}</strong> sudah kami terima.<br/>
+          Tim {branding.tenant_name} akan menghubungi <strong>{form.pic_email}</strong> dalam 1×24 jam kerja.</p>
+          <button class="btn btn-primary" onclick={closeForm}>Tutup</button>
+        </div>
+      {:else}
+        <!-- Form -->
+        <div class="ob-body">
+          {#if formError}
+            <div class="ob-error">{formError}</div>
+          {/if}
+
+          <div class="ob-grid">
+            <div class="field">
+              <label for="ob-company">Nama Perusahaan *</label>
+              <input id="ob-company" type="text" placeholder="PT Maju Bersama" bind:value={form.company_name} />
+            </div>
+            <div class="field">
+              <label for="ob-pic">Nama PIC *</label>
+              <input id="ob-pic" type="text" placeholder="Budi Santoso" bind:value={form.pic_name} />
+            </div>
+            <div class="field">
+              <label for="ob-email">Email Kontak / PIC *</label>
+              <input id="ob-email" type="email"
+                placeholder="sample@gmail.com"
+                bind:value={form.pic_email}
+              />
+              <span style="font-size:11px;color:#64748b">
+                Email ini digunakan untuk menerima welcome mail, kredensial login, dan instruksi DNS.
+              </span>
+            </div>
+            <div class="field">
+              <label for="ob-wa">WhatsApp</label>
+              <input id="ob-wa" type="tel" placeholder="08123456789" bind:value={form.pic_whatsapp} />
+            </div>
+            <div class="field ob-domain-field">
+              <label>Domain Workspace</label>
+              <div class="ob-domain-toggle">
+                <button
+                  type="button"
+                  class="ob-toggle-btn"
+                  class:active={form.domain_type === 'subdomain'}
+                  onclick={() => { form.domain_type = 'subdomain'; form.domain_value = ''; }}
+                >
+                  <span class="ob-radio"></span> Subdomain OPSID
+                </button>
+                <button
+                  type="button"
+                  class="ob-toggle-btn"
+                  class:active={form.domain_type === 'custom_domain'}
+                  onclick={() => { form.domain_type = 'custom_domain'; form.domain_value = ''; }}
+                >
+                  <span class="ob-radio"></span> Domain Sendiri
+                </button>
+              </div>
+              {#if form.domain_type === 'subdomain'}
+                <div class="ob-domain-wrap">
+                  <input
+                    id="ob-sub"
+                    type="text"
+                    placeholder="perusahaan"
+                    bind:value={form.domain_value}
+                    oninput={(e) => form.domain_value = (e.target as HTMLInputElement).value.toLowerCase().replace(/[^a-z0-9-]/g, '')}
+                  />
+                  <span class="ob-domain-suffix">.opsid.web.id</span>
+                </div>
+                {#if domainPreview}
+                  <span class="ob-domain-preview">{domainPreview}</span>
+                {/if}
+              {:else}
+                <input
+                  id="ob-custom"
+                  type="text"
+                  placeholder="workspace.perusahaan.com"
+                  bind:value={form.domain_value}
+                />
+                <span class="ob-domain-hint">
+                  Masukkan domain workspace yang akan digunakan, contoh:
+                  <strong>workspace.1go.biz.id</strong><br/>
+                  Setelah request disetujui, kami akan mengirim instruksi DNS ke email kontak.
+                </span>
+              {/if}
+            </div>
+            <div class="field">
+              <label for="ob-users">Jumlah User</label>
+              <input id="ob-users" type="number" min="1" max="500" placeholder="10" bind:value={form.user_count} />
+            </div>
+          </div>
+
+          <div class="field" style="margin-top:4px">
+            <label for="ob-plan">Paket</label>
+            <div class="ob-plans">
+              {#each [
+                { value:'basic',      label:'Basic',      desc:'s/d 50 user, 50GB storage' },
+                { value:'pro',        label:'Pro',        desc:'s/d 200 user, 200GB storage' },
+                { value:'enterprise', label:'Enterprise', desc:'Unlimited user, storage custom' },
+              ] as p}
+                <button
+                  class="ob-plan-btn"
+                  class:selected={form.plan_tier === p.value}
+                  onclick={() => form.plan_tier = p.value}
+                  type="button"
+                >
+                  <span class="ob-plan-name">{p.label}</span>
+                  <span class="ob-plan-desc">{p.desc}</span>
+                </button>
+              {/each}
+            </div>
+          </div>
+        </div>
+
+        <div class="ob-foot">
+          <button class="btn btn-ghost" onclick={closeForm} disabled={submitting}>Batal</button>
+          <button class="btn btn-primary" onclick={submitForm} disabled={submitting}>
+            {submitting ? 'Mengirim…' : 'Kirim Permintaan'}
+          </button>
+        </div>
+      {/if}
+    </div>
+  </div>
+{/if}
+
+<style>
+  /* ── Onboarding Modal ───────────────────────────────────── */
+  .ob-backdrop {
+    position: fixed; inset: 0;
+    background: rgba(8,9,11,.80);
+    backdrop-filter: blur(6px);
+    z-index: 300;
+    display: grid;
+    place-items: center;
+    padding: 16px;
+  }
+
+  .ob-modal {
+    background: var(--bg-1);
+    border: 1px solid var(--bd-2);
+    border-radius: var(--r-lg);
+    width: 100%;
+    max-width: 600px;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 40px 80px -20px rgba(0,0,0,.9);
+  }
+
+  .ob-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 20px 24px 16px;
+    border-bottom: 1px solid var(--bd-1);
+    position: sticky;
+    top: 0;
+    background: var(--bg-1);
+    z-index: 1;
+  }
+  .ob-title { font-size: 16px; font-weight: 600; color: var(--fg-1); }
+  .ob-sub   { font-size: 12px; color: var(--fg-3); margin-top: 3px; }
+
+  .ob-body { padding: 20px 24px 8px; }
+  .ob-foot { padding: 14px 24px 20px; display: flex; justify-content: flex-end; gap: 8px; }
+
+  .ob-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+
+  .ob-error {
+    background: rgba(229,72,77,.10);
+    border: 1px solid rgba(229,72,77,.28);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 13px;
+    color: #ff8080;
+    margin-bottom: 14px;
+  }
+
+  /* Domain toggle */
+  .ob-domain-field { grid-column: span 2; }
+  .ob-domain-toggle {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+  .ob-toggle-btn {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 14px;
+    border: 1px solid var(--bd-1);
+    border-radius: 7px;
+    background: var(--bg-2);
+    color: var(--fg-3);
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: .12s;
+  }
+  .ob-toggle-btn:hover { border-color: var(--bd-3); color: var(--fg-1); }
+  .ob-toggle-btn.active { border-color: var(--pri); background: var(--pri-soft); color: var(--fg-1); }
+  .ob-radio {
+    width: 13px; height: 13px;
+    border-radius: 50%;
+    border: 2px solid currentColor;
+    display: inline-flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .ob-toggle-btn.active .ob-radio::after {
+    content: '';
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--pri);
+  }
+  .ob-domain-wrap {
+    display: flex;
+    align-items: center;
+    background: var(--bg-2);
+    border: 1px solid var(--bd-1);
+    border-radius: 7px;
+    overflow: hidden;
+  }
+  .ob-domain-wrap input {
+    flex: 1;
+    background: transparent !important;
+    border: none !important;
+    border-radius: 0 !important;
+    min-width: 0;
+  }
+  .ob-domain-suffix {
+    font-size: 12px;
+    color: var(--fg-3);
+    padding: 0 10px;
+    white-space: nowrap;
+    border-left: 1px solid var(--bd-1);
+    background: var(--bg-3);
+    height: 100%;
+    display: flex;
+    align-items: center;
+  }
+  .ob-domain-preview {
+    font-size: 11px;
+    color: var(--pri);
+    margin-top: 5px;
+    font-family: monospace;
+    letter-spacing: .02em;
+  }
+  .ob-domain-hint {
+    font-size: 11px;
+    color: var(--fg-4);
+    margin-top: 5px;
+    line-height: 1.5;
+  }
+  .ob-domain-ip {
+    font-family: monospace;
+    color: var(--fg-2);
+    font-weight: 600;
+  }
+
+  .ob-plans {
+    display: grid;
+    grid-template-columns: repeat(3,1fr);
+    gap: 8px;
+    margin-top: 6px;
+  }
+  .ob-plan-btn {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 12px;
+    border: 1px solid var(--bd-1);
+    border-radius: 8px;
+    background: var(--bg-2);
+    cursor: pointer;
+    text-align: left;
+    transition: .12s;
+    font-family: inherit;
+  }
+  .ob-plan-btn:hover { border-color: var(--bd-3); background: var(--bg-3); }
+  .ob-plan-btn.selected {
+    border-color: var(--pri);
+    background: var(--pri-soft);
+  }
+  .ob-plan-name { font-size: 13px; font-weight: 600; color: var(--fg-1); }
+  .ob-plan-desc { font-size: 11px; color: var(--fg-3); line-height: 1.4; }
+  .ob-plan-btn.selected .ob-plan-name { color: var(--pri); }
+
+  .ob-success {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 40px 24px;
+    text-align: center;
+  }
+  .ob-check {
+    width: 60px; height: 60px;
+    border-radius: 50%;
+    background: var(--ok-soft);
+    border: 1px solid var(--ok-bd);
+    display: grid;
+    place-items: center;
+    color: var(--ok);
+  }
+  .ob-success h3 { font-size: 18px; font-weight: 600; color: var(--fg-1); }
+  .ob-success p  { font-size: 13px; color: var(--fg-3); line-height: 1.6; max-width: 380px; }
+
+  @media (max-width: 600px) {
+    .ob-grid { grid-template-columns: 1fr; }
+    .ob-plans { grid-template-columns: 1fr; }
+  }
+</style>

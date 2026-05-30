@@ -1,6 +1,9 @@
 <script lang="ts">
   import { ui } from '../ui.svelte';
-  import { APP_URLS } from '../config';
+  import { tenantAppUrls } from '../config';
+
+  const _host   = typeof window !== 'undefined' ? window.location.hostname : 'opsid.web.id';
+  const _erpUrl = tenantAppUrls(_host).erpUrl;
 
   // Canonical open behavior per app — must match Dashboard and Sidebar exactly:
   //   mail/cloud → navigateTo(scene)  → MailSection / DriveSection (iframe, same origin)
@@ -24,7 +27,7 @@
 
   function openApp(app: typeof allApps[0]) {
     if (app.key === 'erp') {
-      ui.openApp('erp', APP_URLS.erp, 'Odoo ERP');   // AppViewer — same as Dashboard/Sidebar
+      ui.openApp('erp', _erpUrl, 'Odoo ERP');   // AppViewer — same as Dashboard/Sidebar
     } else if (app.key === 'mail') {
       ui.navigateTo('mail');
     } else if (app.key === 'cloud') {

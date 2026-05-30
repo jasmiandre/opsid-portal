@@ -3,20 +3,12 @@ import type { RequestHandler } from './$types';
 import db from '$lib/db';
 import dns from 'dns';
 import { promisify } from 'util';
+import { requireTenantAccess } from '$lib/server/authHelpers';
 
 const resolveMx  = promisify(dns.resolveMx);
 const resolveTxt = promisify(dns.resolveTxt);
 const MX_HOST    = 'mail.opsid.web.id';
 const DNS_TIMEOUT_MS = 6000;
-
-// ── Auth helper ───────────────────────────────────────────────────────────
-
-function decodeToken(token: string): any {
-  try {
-    const b64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
-    return JSON.parse(Buffer.from(b64, 'base64').toString('utf8'));
-  } catch { return null; }
-}
 
 // ── DNS check helpers ─────────────────────────────────────────────────────
 
@@ -109,13 +101,8 @@ async function checkDmarc(domain: string) {
 // ── GET /check ────────────────────────────────────────────────────────────
 
 export const GET: RequestHandler = async ({ params, cookies }) => {
-  const token = cookies.get('opsid_token');
-  if (!token) return json({ ok: false, error: 'Unauthorized' }, { status: 401 });
-
-  const claims  = decodeToken(token);
-  if (!claims)  return json({ ok: false, error: 'Unauthorized' }, { status: 401 });
-  const isAdmin = (claims.realm_access?.roles ?? []).includes('opsid-admin');
-  const orgSlug = claims.org_slug ?? claims.organization_slug ?? null;
+  const auth = await requireTenantAccess(cookies, params.id);
+  if (!auth.ok) return json({ ok: false, error: auth.error }, { status: auth.status });
 
   // Fetch tenant
   const { rows } = await db.query(
@@ -124,13 +111,6 @@ export const GET: RequestHandler = async ({ params, cookies }) => {
   );
   if (!rows.length) return json({ ok: false, error: 'Tenant tidak ditemukan' }, { status: 404 });
   const t = rows[0];
-
-  // Tenant admin may only check their own
-  if (!isAdmin) {
-    const mine = await db.query(`SELECT id FROM tenants WHERE slug = $1`, [orgSlug]);
-    if (!mine.rows.length || String(mine.rows[0].id) !== String(params.id))
-      return json({ ok: false, error: 'Forbidden' }, { status: 403 });
-  }
 
   if (!t.mail_domain)
     return json({ ok: false, error: 'Mail domain belum dikonfigurasi' }, { status: 400 });

@@ -3,6 +3,7 @@ import type { RequestHandler } from './$types';
 import tls from 'tls';
 import dns from 'dns/promises';
 import db from '$lib/db';
+import { requireTenantAccess } from '$lib/server/authHelpers';
 
 const OPSID_IP = '103.134.152.140';
 
@@ -33,19 +34,9 @@ function checkTlsCert(domain: string): Promise<{
   });
 }
 
-function decodeToken(token: string): any {
-  try {
-    const b64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
-    return JSON.parse(Buffer.from(b64, 'base64').toString('utf8'));
-  } catch { return null; }
-}
-
 export const GET: RequestHandler = async ({ params, cookies }) => {
-  // Auth: opsid-admin only
-  const token = cookies.get('opsid_token');
-  if (!token) return json({ ok: false, error: 'Unauthorized' }, { status: 401 });
-  if (!(decodeToken(token)?.realm_access?.roles ?? []).includes('opsid-admin'))
-    return json({ ok: false, error: 'Forbidden' }, { status: 403 });
+  const auth = await requireTenantAccess(cookies, params.id);
+  if (!auth.ok) return json({ ok: false, error: auth.error }, { status: auth.status });
 
   // Fetch tenant
   const row = await db.query(`SELECT id, domain FROM tenants WHERE id = $1`, [params.id])

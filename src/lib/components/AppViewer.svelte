@@ -110,6 +110,7 @@
         title={ui.currentApp.label}
         onload={onIframeLoad}
         class:hidden={!iframeLoaded}
+        allow="clipboard-read; clipboard-write; notifications; fullscreen"
       ></iframe>
     {/if}
   {/if}

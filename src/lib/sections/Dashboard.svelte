@@ -1,8 +1,11 @@
 <script lang="ts">
   import { auth } from '../auth.svelte';
   import { ui }   from '../ui.svelte';
-  import { APP_URLS } from '../config';
+  import { APP_URLS, tenantAppUrls } from '../config';
   import { onMount } from 'svelte';
+
+  const _host   = typeof window !== 'undefined' ? window.location.hostname : 'opsid.web.id';
+  const _appUrls = tenantAppUrls(_host);
 
   // ── Icons ───────────────────────────────────────────────────
   const I = {
@@ -24,9 +27,9 @@
   };
 
   const apps = [
-    { key:'mail',  ic:'mail',  name:'SOGo Mail', url: APP_URLS.mail  },
-    { key:'cloud', ic:'cloud', name:'Nextcloud',  url: APP_URLS.cloud },
-    { key:'erp',   ic:'box',   name:'Odoo ERP',   url: APP_URLS.erp   },
+    { key:'mail',  ic:'mail',  name:'SOGo Mail', url: APP_URLS.mail      },
+    { key:'cloud', ic:'cloud', name:'Nextcloud',  url: _appUrls.driveUrl },
+    { key:'erp',   ic:'box',   name:'Odoo ERP',   url: _appUrls.erpUrl   },
   ];
 
   // ── State ────────────────────────────────────────────────────

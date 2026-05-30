@@ -10,6 +10,50 @@ export const APP_URLS = {
   auth:  'https://auth.opsid.web.id'
 } as const;
 
+/**
+ * Returns tenant-specific drive and erp URLs for the given browser hostname.
+ *
+ * OPSID-native domains (opsid.web.id / *.opsid.web.id):
+ *   drive → files.opsid.web.id  (shared Nextcloud)
+ *   erp   → existing APP_URLS.erp (KC OAuth → erp.opsid.web.id)
+ *
+ * Custom-domain tenants (workspace.X):
+ *   base  = strip first label  e.g. workspace.1go.biz.id → 1go.biz.id
+ *   drive → https://drive.{base}/apps/user_oidc/login/1?redirect_url=/apps/files/
+ *   erp   → KC OAuth implicit flow pointing at erp.{base}
+ *
+ * Called at component init time so Date.now() gives a fresh nonce per mount.
+ */
+export function tenantAppUrls(host: string): { driveUrl: string; erpUrl: string } {
+  if (host === 'opsid.web.id' || host.endsWith('.opsid.web.id')) {
+    return {
+      driveUrl: `${APP_URLS.cloud}?redirect_url=/apps/files/`,
+      erpUrl:   APP_URLS.erp,
+    };
+  }
+
+  // Strip first subdomain label: workspace.1go.biz.id → 1go.biz.id
+  const labels     = host.split('.');
+  const baseDomain = labels.length > 1 ? labels.slice(1).join('.') : host;
+  const driveHost  = `drive.${baseDomain}`;
+  const erpHost    = `erp.${baseDomain}`;
+
+  const erpState  = JSON.stringify({ d: 'odoo_db', p: 4, r: `https://${erpHost}/web` });
+  const erpParams = new URLSearchParams({
+    response_type: 'id_token token',
+    client_id:     'odoo',
+    redirect_uri:  `https://${erpHost}/auth_oauth/signin`,
+    scope:         'openid profile email',
+    state:         erpState,
+    nonce:         Math.random().toString(36).slice(2),
+  });
+
+  return {
+    driveUrl: `https://${driveHost}/apps/user_oidc/login/1?redirect_url=/apps/files/`,
+    erpUrl:   `${KC_URL}/realms/${REALM}/protocol/openid-connect/auth?${erpParams}`,
+  };
+}
+
 export const APP_META = {
   mail:  { tile: 'mail',  name: 'SOGo Mail',    host: 'mail.opsid.web.id',  desc: 'Email, kalender, dan kontak terpusat' },
   cloud: { tile: 'cloud', name: 'Nextcloud',    host: 'files.opsid.web.id', desc: 'Penyimpanan file dan dokumen bersama' },

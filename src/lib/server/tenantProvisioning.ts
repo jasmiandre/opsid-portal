@@ -72,10 +72,8 @@ export async function sendWelcomeEmail(opts: {
       `3. Masukkan username dan password di atas`,
       `4. Kamu akan masuk ke dashboard OPSID`,
       ``,
-      `Setelah login, kamu bisa mengakses:`,
-      `- Mail (SOGo)     : ${workspaceUrl}/mail`,
-      `- File (Nextcloud) : ${workspaceUrl}/drive`,
-      `- ERP (Odoo)      : ${workspaceUrl}/erp`,
+      `Setelah login, kamu bisa mengakses semua aplikasi dari sidebar portal.`,
+      `Klik "Mail", "Drive", atau "Odoo ERP" di sidebar setelah masuk.`,
       ``,
       `Simpan email ini. Jika ada masalah, balas email ini atau hubungi admin OPSID.`,
       ``,
@@ -159,7 +157,6 @@ export async function sendWelcomeEmail(opts: {
 }
 
 // ── Postfix domain registration (via mail-api) ─────────────────
-// Adds domain to /etc/postfix/virtual_mailbox_domains and reloads Postfix.
 async function registerPostfixDomain(domain: string): Promise<void> {
   const res = await fetch(`${MAIL_API}/postfix/domain/add`, {
     method:  'POST',
@@ -168,6 +165,32 @@ async function registerPostfixDomain(domain: string): Promise<void> {
   });
   const data = await res.json().catch(() => ({}));
   if (!data.ok) throw new Error(data.error ?? `mail-api postfix/domain/add HTTP ${res.status}`);
+}
+
+/**
+ * Generate (or retrieve existing) DKIM key for a mail domain.
+ * Returns the public key TXT record value, or null on failure.
+ */
+async function generateDkim(mailDomain: string, selector = 'mail'): Promise<string | null> {
+  // Try generate first
+  try {
+    const res  = await fetch(`${MAIL_API}/dkim/generate`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ domain: mailDomain, selector }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (data.ok && data.public_key_txt) return data.public_key_txt;
+  } catch { /* fall through to status check */ }
+
+  // Key may already exist — fetch it
+  try {
+    const res  = await fetch(`${MAIL_API}/dkim/status?domain=${encodeURIComponent(mailDomain)}&selector=${encodeURIComponent(selector)}`);
+    const data = await res.json().catch(() => ({}));
+    if (data.ok && data.public_key_txt) return data.public_key_txt;
+  } catch { /* ignore */ }
+
+  return null;
 }
 
 // ── Post-provisioning smoke test ───────────────────────────────
@@ -179,7 +202,17 @@ export interface SmokeResult {
 }
 
 export async function smokeTestTenant(slug: string, domain: string): Promise<SmokeResult> {
-  const adminUsername = `admin.${slug}`;
+  const tenantRes = await db.query(
+    `SELECT tu.username
+       FROM tenant_users tu
+       JOIN tenants t ON t.id = tu.tenant_id
+      WHERE t.slug = $1 OR t.domain = $2
+      ORDER BY tu.is_admin DESC, tu.id ASC
+      LIMIT 1`,
+    [slug, domain]
+  );
+
+  const adminUsername = tenantRes.rows[0]?.username || deriveUsernameFromEmail(`admin@${domain}`, domain);
   const details: Record<string, string> = {};
   let kc_user = false, nc_user = false, sogo_path = false;
 
@@ -327,14 +360,30 @@ async function createKeycloakOrg(slug: string, name: string, domain: string): Pr
   throw new Error(`KC org create status ${res.status}: ${text.slice(0, 200)}`);
 }
 
-async function createKcUser(slug: string, adminName: string, adminPassword: string, adminEmail: string): Promise<string | null> {
+
+function deriveUsernameFromEmail(email: string, domain: string): string {
+  const local = email.split('@')[0].toLowerCase().replace(/[^a-z0-9._-]/g, '');
+
+  const parts = domain.toLowerCase().split('.');
+  const tenantShort = parts.length >= 3 ? parts[1] : parts[0];
+
+  let username = `${local}.${tenantShort}`.replace(/[^a-z0-9._-]/g, '');
+
+  if (username.length > 32) {
+    username = username.slice(0, 32);
+  }
+
+  return username;
+}
+
+async function createKcUser(slug: string, adminUsername: string, adminName: string, adminPassword: string, adminEmail: string): Promise<string | null> {
   const token = await getKcToken();
   const names = adminName.split(' ');
   const res = await fetch(`${KC_BASE}/admin/realms/opsid-internal/users`, {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      username:      `admin.${slug}`,
+      username:      adminUsername,
       email:         adminEmail,
       firstName:     names[0],
       lastName:      names.slice(1).join(' ') || slug,
@@ -388,17 +437,32 @@ export async function syncKcClientRedirectUri(domain: string): Promise<void> {
   if (!clients.length) throw new Error('KC client portal not found');
   const client = clients[0];
 
-  const newRedirect = `https://${domain}/*`;
-  const newOrigin   = `https://${domain}`;
+  const newRedirect    = `https://${domain}/*`;
+  const newOrigin      = `https://${domain}`;
+  const newPostLogout  = `https://${domain}`;
+  const newPostLogout2 = `https://${domain}/*`;
 
   const existing   = client.redirectUris  ?? [];
   const existingWO = client.webOrigins    ?? [];
 
-  // 2. Idempotent merge
-  if (existing.includes(newRedirect) && existingWO.includes(newOrigin)) return;
+  // Parse ##-separated post-logout redirect URIs (Keycloak 22+ format)
+  const existingPostRaw: string = client.attributes?.['post.logout.redirect.uris'] ?? '';
+  const existingPost: string[]  = existingPostRaw.split('##').map((s: string) => s.trim()).filter(Boolean);
 
-  const redirectUris = Array.from(new Set([...existing,   newRedirect]));
-  const webOrigins   = Array.from(new Set([...existingWO, newOrigin]));
+  // 2. Idempotent: skip if all already present
+  const alreadyHasPost = existingPost.includes(newPostLogout) && existingPost.includes(newPostLogout2);
+  if (existing.includes(newRedirect) && existingWO.includes(newOrigin) && alreadyHasPost) return;
+
+  const redirectUris = Array.from(new Set([...existing,     newRedirect]));
+  const webOrigins   = Array.from(new Set([...existingWO,   newOrigin]));
+  const postLogout   = Array.from(new Set([...existingPost, newPostLogout, newPostLogout2])).join('##');
+
+  const updatedClient = {
+    ...client,
+    redirectUris,
+    webOrigins,
+    attributes: { ...(client.attributes ?? {}), 'post.logout.redirect.uris': postLogout },
+  };
 
   // 3. PUT full client back (KC requires full representation)
   const putRes = await fetch(
@@ -406,13 +470,40 @@ export async function syncKcClientRedirectUri(domain: string): Promise<void> {
     {
       method: 'PUT',
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...client, redirectUris, webOrigins }),
+      body: JSON.stringify(updatedClient),
     }
   );
   if (!putRes.ok) {
     const body = await putRes.text().catch(() => '');
     throw new Error(`KC client PUT failed ${putRes.status}: ${body.slice(0, 200)}`);
   }
+}
+
+// ── KC redirect URIs for tenant drive/erp subdomains ──────────
+async function addKcRedirectUrisForTenant(driveDomain: string, erpDomain: string): Promise<void> {
+  const token = await getKcToken();
+
+  async function updateClient(clientId: string, newUris: string[], newOrigins: string[] = []): Promise<void> {
+    const listRes = await fetch(`${KC_BASE}/admin/realms/opsid-internal/clients?clientId=${clientId}`,
+      { headers: { 'Authorization': `Bearer ${token}` } });
+    const clients: any[] = await listRes.json();
+    if (!clients.length) throw new Error(`KC client ${clientId} not found`);
+    const client = clients[0];
+
+    const uris    = Array.from(new Set([...(client.redirectUris ?? []), ...newUris]));
+    const origins = Array.from(new Set([...(client.webOrigins  ?? []), ...newOrigins]));
+    if (uris.length === (client.redirectUris ?? []).length && origins.length === (client.webOrigins ?? []).length) return;
+
+    const res = await fetch(`${KC_BASE}/admin/realms/opsid-internal/clients/${client.id}`, {
+      method: 'PUT',
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...client, redirectUris: uris, webOrigins: origins }),
+    });
+    if (!res.ok) throw new Error(`KC PUT ${clientId} failed ${res.status}`);
+  }
+
+  await updateClient('nextcloud', [`https://${driveDomain}/*`, `https://${driveDomain}/apps/user_oidc/code`]);
+  await updateClient('odoo', [`https://${erpDomain}/*`, `https://${erpDomain}/auth_oauth/signin`], [`https://${erpDomain}`]);
 }
 
 // ── SSL provisioning via nginx-api (custom domain only) ───────
@@ -434,10 +525,10 @@ async function createFreeIPAGroup(slug: string): Promise<void> {
   });
 }
 
-async function createFreeIPAUser(slug: string, adminName: string, adminPassword: string, adminEmail: string): Promise<void> {
+async function createFreeIPAUser(slug: string, adminUsername: string, adminName: string, adminPassword: string, adminEmail: string): Promise<void> {
   const cookie = await ipaLogin();
   const names = adminName.trim().split(' ');
-  const username = `admin.${slug}`;
+  const username = adminUsername;
   await ipaCall(cookie, 'user_add', [username], {
     givenname:        names[0],
     sn:               names.slice(1).join(' ') || slug,
@@ -522,6 +613,43 @@ async function addNcUserToGroup(username: string, groupId: string): Promise<void
     groupid: groupId,
   });
   if (code !== 100 && code !== 102) throw new Error(`NC addToGroup ${code}: ${message}`);
+}
+
+/**
+ * Add a domain to NC trusted_domains so NC accepts requests with that Host header.
+ * Required for per-tenant drive subdomains (drive.example.com).
+ * Uses occ config:system:set via SSH → docker exec on files-01.
+ * Idempotent: reading existing list first, only adds if missing.
+ */
+async function addNcTrustedDomain(domain: string): Promise<void> {
+  const safeDomain = domain.replace(/[^a-zA-Z0-9._-]/g, '');
+  if (!safeDomain) throw new Error('Invalid domain');
+
+  // 1. Get current trusted_domains list
+  const getCmd = [
+    'ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10',
+    '-o', 'StrictHostKeyChecking=no', '10.34.1.7',
+    `"docker exec -u 33 nextcloud php occ config:system:get trusted_domains 2>/dev/null"`,
+  ].join(' ');
+
+  let existing: string[] = [];
+  try {
+    const out = execSync(getCmd, { timeout: 15000 }).toString().trim();
+    existing = out.split('\n').map(s => s.trim()).filter(Boolean);
+  } catch { /* ignore — treat as empty list */ }
+
+  if (existing.includes(safeDomain)) return; // already trusted
+
+  // 2. Find next available index
+  const nextIndex = existing.length;
+
+  // 3. Set the new entry
+  const setCmd = [
+    'ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10',
+    '-o', 'StrictHostKeyChecking=no', '10.34.1.7',
+    `"docker exec -u 33 nextcloud php occ config:system:set trusted_domains ${nextIndex} --value=${safeDomain}"`,
+  ].join(' ');
+  execSync(setCmd, { timeout: 15000 });
 }
 
 // ── Dovecot quota via SSH ──────────────────────────────────────
@@ -642,7 +770,7 @@ export async function provisionTenant(input: ProvisionInput): Promise<ProvisionR
 
   const steps: StepResult[] = [];
   const adminEmail = (inputAdminEmail || `admin@${domain}`).trim().toLowerCase();
-  const adminUsername = (inputAdminUsername || adminEmail.split('@')[0] || `admin.${slug}`).trim().toLowerCase();
+  const adminUsername = deriveUsernameFromEmail(adminEmail, domain);
 
   // ── Pre-flight: duplicate check (abort before any external calls) ──
   try {
@@ -677,7 +805,7 @@ export async function provisionTenant(input: ProvisionInput): Promise<ProvisionR
     return { ok: false, error: String(e), steps: [{ step: 'db_tenant', ok: false, error: String(e) }] };
   }
 
-  // ── Step 2: Nginx site (best-effort) ──────────────────────────
+  // ── Step 2: Nginx portal vhost (best-effort) ──────────────────
   try {
     const r = await fetch(`${NGINX_API}/site/add`, {
       method: 'POST',
@@ -689,13 +817,59 @@ export async function provisionTenant(input: ProvisionInput): Promise<ProvisionR
     steps.push({ step: 'nginx', ok: false, error: String(e) });
   }
 
-  // ── Step 2b: SSL provisioning (custom domain only, best-effort) ─
+  // ── Step 2b: SSL + drive/erp vhosts (custom domain only, best-effort) ─
   if (domain_type === 'custom_domain') {
+    // Derive drive/erp subdomains: workspace.example.com → drive/erp.example.com
+    const baseDomain  = domain.split('.').slice(1).join('.');
+    const driveDomain = `drive.${baseDomain}`;
+    const erpDomain   = `erp.${baseDomain}`;
+
     try {
       await sslProvision(domain, slug);
       steps.push({ step: 'ssl_certbot', ok: true });
     } catch (e: any) {
       steps.push({ step: 'ssl_certbot', ok: false, error: String(e) });
+    }
+
+    // Drive vhost + SSL
+    try {
+      const r = await fetch(`${NGINX_API}/ssl/issue-nc`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nc_domain: driveDomain, portal_domain: domain }),
+      });
+      steps.push({ step: 'nginx_drive', ok: r.ok, error: r.ok ? undefined : `HTTP ${r.status}` });
+    } catch (e: any) {
+      steps.push({ step: 'nginx_drive', ok: false, error: String(e) });
+    }
+
+    // ERP vhost + SSL
+    try {
+      const r = await fetch(`${NGINX_API}/ssl/issue-odoo`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ erp_domain: erpDomain, portal_domain: domain }),
+      });
+      steps.push({ step: 'nginx_erp', ok: r.ok, error: r.ok ? undefined : `HTTP ${r.status}` });
+    } catch (e: any) {
+      steps.push({ step: 'nginx_erp', ok: false, error: String(e) });
+    }
+
+    // KC: add drive/erp redirect URIs
+    try {
+      await addKcRedirectUrisForTenant(driveDomain, erpDomain);
+      steps.push({ step: 'kc_redirect_uris', ok: true });
+    } catch (e: any) {
+      steps.push({ step: 'kc_redirect_uris', ok: false, error: String(e) });
+    }
+
+    // NC trusted_domains: add drive subdomain so NC accepts requests with that Host header.
+    // Without this, NC returns "Access through untrusted domain" for iframe requests.
+    try {
+      await addNcTrustedDomain(driveDomain);
+      steps.push({ step: 'nc_trusted_domain', ok: true });
+    } catch (e: any) {
+      steps.push({ step: 'nc_trusted_domain', ok: false, error: String(e) });
     }
   }
 
@@ -734,7 +908,7 @@ export async function provisionTenant(input: ProvisionInput): Promise<ProvisionR
 
   // ── Step 5: FreeIPA user (best-effort, idempotent) ───────────
   try {
-    await createFreeIPAUser(slug, adminName, adminPassword, adminEmail);
+    await createFreeIPAUser(slug, adminUsername, adminName, adminPassword, adminEmail);
     steps.push({ step: 'freeipa_user', ok: true });
   } catch (e: any) {
     const msg = String(e);
@@ -745,7 +919,7 @@ export async function provisionTenant(input: ProvisionInput): Promise<ProvisionR
   // ── Step 6: Keycloak user (best-effort, idempotent) ──────────
   let kcUserId: string | null = null;
   try {
-    kcUserId = await createKcUser(slug, adminName, adminPassword, adminEmail);
+    kcUserId = await createKcUser(slug, adminUsername, adminName, adminPassword, adminEmail);
     if (!kcUserId) kcUserId = await findKcUserByUsername(adminUsername);
     steps.push({ step: 'kc_user', ok: !!kcUserId, error: kcUserId ? undefined : 'user not found after create' });
   } catch (e: any) {
@@ -843,19 +1017,42 @@ export async function provisionTenant(input: ProvisionInput): Promise<ProvisionR
     steps.push({ step: 'odoo_user', ok: false, error: msg });
   }
 
-  // ── Step 13: Postfix domain registration (best-effort) ────────
-  // Registers both the portal domain and the slug subdomain so
-  // admin@{domain} can receive mail (e.g. for password delivery).
-  try {
-    await registerPostfixDomain(domain);
-    // For subdomain tenants also ensure the opsid subdomain is registered.
-    // For custom domains this is redundant but harmless.
-    if (domain_type === 'subdomain') {
-      await registerPostfixDomain(`${slug}.opsid.web.id`).catch(() => null);
+  // ── Step 13: Mail domain — postfix registration + DKIM generation ─
+  // Derive the correct mail domain from the admin email address.
+  // e.g. jasmi@1go.biz.id → mail domain = 1go.biz.id
+  // For subdomain tenants: fall back to slug.opsid.web.id.
+  const mailDomain = (() => {
+    const fromEmail = adminEmail.split('@')[1]?.trim().toLowerCase();
+    if (fromEmail && fromEmail.includes('.')) return fromEmail;
+    // fallback: workspace.example.com → example.com; subdomain → slug.opsid.web.id
+    if (domain_type === 'custom_domain') {
+      return domain.split('.').slice(1).join('.');
     }
+    return `${slug}.opsid.web.id`;
+  })();
+
+  try {
+    await registerPostfixDomain(mailDomain);
     steps.push({ step: 'postfix_domain', ok: true });
   } catch (e: any) {
     steps.push({ step: 'postfix_domain', ok: false, error: String(e) });
+  }
+
+  // ── Step 13b: DKIM generation + save to DB ────────────────────
+  try {
+    const dkimKey = await generateDkim(mailDomain, 'mail');
+    await db.query(
+      `UPDATE tenants
+       SET    mail_domain       = $1,
+              dkim_selector     = 'mail',
+              dkim_public_key   = $2,
+              dkim_generated_at = NOW()
+       WHERE  id = $3`,
+      [mailDomain, dkimKey, tenant.id]
+    );
+    steps.push({ step: 'dkim', ok: !!dkimKey, error: dkimKey ? undefined : 'DKIM key missing — check mail-api' });
+  } catch (e: any) {
+    steps.push({ step: 'dkim', ok: false, error: String(e) });
   }
 
   // ── Step 14: Post-provisioning smoke test ─────────────────────
@@ -909,8 +1106,19 @@ export async function reprovisionTenant(input: ReprovisionInput): Promise<Reprov
   const { tenantId, slug, domain, domain_type, name, adminName, actor, only,
           planEmailGb = 50, planNcGb = 50 } = input;
   const steps:        StepResult[] = [];
-  const adminUsername = `admin.${slug}`;
-  const adminEmail    = `admin@${domain}`;
+
+  const adminUserRow = await db.query(
+    `SELECT username, email
+       FROM tenant_users
+      WHERE tenant_id = $1
+      ORDER BY is_admin DESC, id ASC
+      LIMIT 1`,
+    [tenantId]
+  ).then(r => r.rows[0]).catch(() => null);
+
+  const adminEmail    = (adminUserRow?.email || `admin@${domain}`).trim().toLowerCase();
+  const adminUsername = (adminUserRow?.username || deriveUsernameFromEmail(adminEmail, domain)).trim().toLowerCase();
+
   const want = (step: string) => !only || only.includes(step);
 
   let newPassword: string | undefined;
@@ -962,6 +1170,18 @@ export async function reprovisionTenant(input: ReprovisionInput): Promise<Reprov
       const msg = String(e);
       const conflict = msg.includes('409') || msg.includes('already exists');
       steps.push({ step: 'kc_org', ok: conflict, error: conflict ? undefined : msg });
+
+      if (conflict) {
+        try {
+          const token = await getKcToken();
+          const r = await fetch(
+            `${KC_BASE}/admin/realms/opsid-internal/organizations?search=${encodeURIComponent(slug)}`,
+            { headers: { 'Authorization': `Bearer ${token}` } }
+          );
+          const orgs: any[] = await r.json().catch(() => []);
+          orgId = orgs.find((o: any) => o.alias === slug)?.id ?? null;
+        } catch {}
+      }
     }
   }
 
@@ -969,7 +1189,7 @@ export async function reprovisionTenant(input: ReprovisionInput): Promise<Reprov
   if (want('freeipa_user')) {
     newPassword = newPassword ?? generatePassword();
     try {
-      await createFreeIPAUser(slug, adminName, newPassword, adminEmail);
+      await createFreeIPAUser(slug, adminUsername, adminName, newPassword, adminEmail);
       steps.push({ step: 'freeipa_user', ok: true });
     } catch (e: any) {
       const msg = String(e);
@@ -984,7 +1204,7 @@ export async function reprovisionTenant(input: ReprovisionInput): Promise<Reprov
   if (want('kc_user')) {
     newPassword = newPassword ?? generatePassword();
     try {
-      kcUserId = await createKcUser(slug, adminName, newPassword, adminEmail);
+      kcUserId = await createKcUser(slug, adminUsername, adminName, newPassword, adminEmail);
       if (!kcUserId) kcUserId = await findKcUserByUsername(adminUsername);
       steps.push({ step: 'kc_user', ok: !!kcUserId, error: kcUserId ? undefined : 'user not found after create' });
     } catch (e: any) {

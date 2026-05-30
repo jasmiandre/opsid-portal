@@ -15,6 +15,7 @@ import db from '$lib/db';
 import tls from 'tls';
 import dns from 'dns/promises';
 import { execSync } from 'child_process';
+import { requireTenantAccess } from '$lib/server/authHelpers';
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
@@ -115,7 +116,7 @@ async function ipaCall(cookie: string, method: string, args: any[], kwargs: any 
   return res.json();
 }
 
-async function checkIpa(slug: string): Promise<{
+async function checkIpa(slug: string, username: string): Promise<{
   group:  { ok: boolean; memberCount?: number; detail: string };
   user:   { ok: boolean; detail: string };
 }> {
@@ -124,7 +125,7 @@ async function checkIpa(slug: string): Promise<{
     const cookie = await ipaLogin();
     const [grpRes, usrRes] = await Promise.all([
       ipaCall(cookie, 'group_show', [`${slug}-users`], { all: false }),
-      ipaCall(cookie, 'user_show',  [`admin.${slug}`],  { all: false }),
+      ipaCall(cookie, 'user_show',  [username],  { all: false }),
     ]);
     const grpData = grpRes?.result?.result;
     const usrData = usrRes?.result?.result;
@@ -298,12 +299,8 @@ function checkTls(domain: string): Promise<{ ok: boolean; issuer?: string; subje
 // ── Main handler ─────────────────────────────────────────────────
 
 export const GET: RequestHandler = async ({ params, url, cookies }) => {
-  // Auth check
-  const token = cookies.get('opsid_token');
-  if (!token) return json({ ok: false, error: 'Unauthorized' }, { status: 401 });
-  const p = decodeToken(token);
-  if (!(p?.realm_access?.roles ?? []).includes('opsid-admin'))
-    return json({ ok: false, error: 'Forbidden' }, { status: 403 });
+  const auth = await requireTenantAccess(cookies, params.id);
+  if (!auth.ok) return json({ ok: false, error: auth.error }, { status: auth.status });
 
   const withSsl  = url.searchParams.get('ssl')  === '1';
   const fastMode = url.searchParams.get('fast') === '1';
@@ -326,7 +323,17 @@ export const GET: RequestHandler = async ({ params, url, cookies }) => {
   ).then(r => r.rows[0]).catch(() => null);
 
   const { slug, domain } = tenantRow;
-  const adminUsername = `admin.${slug}`;
+
+  const adminUserRow = await db.query(
+    `SELECT username
+       FROM tenant_users
+      WHERE tenant_id = $1
+      ORDER BY is_admin DESC, id ASC
+      LIMIT 1`,
+    [params.id]
+  ).then(r => r.rows[0]).catch(() => null);
+
+  const adminUsername = adminUserRow?.username || domain.split('.')[0];
 
   // Run all checks in parallel (with per-check timeouts)
   const T = 12000; // max per check
@@ -343,7 +350,7 @@ export const GET: RequestHandler = async ({ params, url, cookies }) => {
     fastMode ? Promise.resolve({ company: { ok: false, detail: 'skipped (fast mode)' }, user: { ok: false, detail: 'skipped' } })
              : timeout(T, checkOdoo(slug, domain), { company: { ok: false, detail: 'timeout' }, user: { ok: false, detail: 'timeout' } }),
     fastMode ? Promise.resolve({ group: { ok: false, detail: 'skipped (fast mode)' }, user: { ok: false, detail: 'skipped' } })
-             : timeout(T, checkIpa(slug), { group: { ok: false, detail: 'timeout' }, user: { ok: false, detail: 'timeout' } }),
+             : timeout(T, checkIpa(slug, adminUsername), { group: { ok: false, detail: 'timeout' }, user: { ok: false, detail: 'timeout' } }),
     withSsl  ? timeout(8000, checkTls(domain), { ok: false, detail: 'timeout' })
              : Promise.resolve(null),
   ]);
