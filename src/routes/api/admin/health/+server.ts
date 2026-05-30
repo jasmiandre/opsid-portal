@@ -45,7 +45,18 @@ async function queryFloat(query: string): Promise<number> {
   }
 }
 
-export const GET: RequestHandler = async () => {
+function requireAdmin(cookies: { get: (k: string) => string | undefined }): boolean {
+  const token = cookies.get('opsid_token');
+  if (!token) return false;
+  try {
+    const p = JSON.parse(Buffer.from(token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'), 'base64').toString());
+    const roles: string[] = p?.realm_access?.roles ?? [];
+    return roles.includes('opsid-admin') && (p.exp ?? 0) > Math.floor(Date.now() / 1000);
+  } catch { return false; }
+}
+
+export const GET: RequestHandler = async ({ cookies }) => {
+  if (!requireAdmin(cookies)) return json({ error: 'Forbidden' }, { status: 403 });
   try {
     const services = await Promise.all(
       VMS.map(async (vm) => {

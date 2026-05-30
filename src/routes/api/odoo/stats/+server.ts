@@ -32,7 +32,17 @@ async function odooCall(session: string, model: string, method: string, args: an
   return d.result;
 }
 
-export const GET: RequestHandler = async () => {
+function requireAuth(cookies: { get: (k: string) => string | undefined }): boolean {
+  const token = cookies.get('opsid_token');
+  if (!token) return false;
+  try {
+    const p = JSON.parse(Buffer.from(token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'), 'base64').toString());
+    return !!(p?.preferred_username && (p.exp ?? 0) > Math.floor(Date.now() / 1000));
+  } catch { return false; }
+}
+
+export const GET: RequestHandler = async ({ cookies }) => {
+  if (!requireAuth(cookies)) return json({ error: 'Unauthorized' }, { status: 401 });
   try {
     const session = await odooSession();
 

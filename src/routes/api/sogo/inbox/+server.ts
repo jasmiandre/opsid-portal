@@ -87,7 +87,17 @@ function imapFetch(username: string): Promise<{unseen:number, total:number, mess
   });
 }
 
-export const GET: RequestHandler = async ({ url }) => {
+function requireAuth(cookies: { get: (k: string) => string | undefined }): boolean {
+  const token = cookies.get('opsid_token');
+  if (!token) return false;
+  try {
+    const p = JSON.parse(Buffer.from(token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'), 'base64').toString());
+    return !!(p?.preferred_username && (p.exp ?? 0) > Math.floor(Date.now() / 1000));
+  } catch { return false; }
+}
+
+export const GET: RequestHandler = async ({ url, cookies }) => {
+  if (!requireAuth(cookies)) return json({ unseen:0, total:0, ok:false, messages:[], error:'Unauthorized' }, { status: 401 });
   const username = url.searchParams.get('user') || '';
   if (!username) return json({ unseen:0, total:0, ok:false, messages:[], error:'user required' });
 

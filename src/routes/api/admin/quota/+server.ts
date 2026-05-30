@@ -7,10 +7,21 @@ const execAsync = promisify(exec);
 
 const NC_URL  = 'https://files.opsid.web.id';
 const NC_USER = 'admin';
-const NC_PASS = 'Sandiaman2026';
+const NC_PASS = 'VqscHz0m1mrJWvjWofR81Dupuft3VLrrPRPzdkDC6Os9fDYEWIpLA5lbOcNv5p753jRJEnDN';
+
+function requireAdmin(cookies: { get: (k: string) => string | undefined }): boolean {
+  const token = cookies.get('opsid_token');
+  if (!token) return false;
+  try {
+    const p = JSON.parse(Buffer.from(token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'), 'base64').toString());
+    const roles: string[] = p?.realm_access?.roles ?? [];
+    return roles.includes('opsid-admin') && (p.exp ?? 0) > Math.floor(Date.now() / 1000);
+  } catch { return false; }
+}
 
 // SET quota untuk user ke semua service
-export const POST: RequestHandler = async ({ request }) => {
+export const POST: RequestHandler = async ({ request, cookies }) => {
+  if (!requireAdmin(cookies)) return json({ error: 'Forbidden' }, { status: 403 });
   const { username, quotaGB } = await request.json();
 
   if (!username || !quotaGB) {
@@ -62,7 +73,8 @@ export const POST: RequestHandler = async ({ request }) => {
 };
 
 // GET quota semua user dari Nextcloud
-export const GET: RequestHandler = async () => {
+export const GET: RequestHandler = async ({ cookies }) => {
+  if (!requireAdmin(cookies)) return json({ error: 'Forbidden' }, { status: 403 });
   try {
     const res = await fetch(`${NC_URL}/ocs/v1.php/cloud/users?format=json`, {
       headers: {

@@ -37,7 +37,17 @@ function parseIcalEvents(xmlText: string): CalEvent[] {
   return events.sort((a, b) => a.time.localeCompare(b.time));
 }
 
+function requireAuth(cookies: { get: (k: string) => string | undefined }): boolean {
+  const token = cookies.get('opsid_token');
+  if (!token) return false;
+  try {
+    const p = JSON.parse(Buffer.from(token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'), 'base64').toString());
+    return !!(p?.preferred_username && (p.exp ?? 0) > Math.floor(Date.now() / 1000));
+  } catch { return false; }
+}
+
 export const GET: RequestHandler = async ({ url, cookies }) => {
+  if (!requireAuth(cookies)) return json({ events: [], error: 'Unauthorized' }, { status: 401 });
   const user = url.searchParams.get('user');
   if (!user) return json({ events: [] });
 

@@ -2,7 +2,18 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import db from '$lib/db';
 
-export const GET: RequestHandler = async ({ url }) => {
+function requireAdmin(cookies: { get: (k: string) => string | undefined }): boolean {
+  const token = cookies.get('opsid_token');
+  if (!token) return false;
+  try {
+    const p = JSON.parse(Buffer.from(token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'), 'base64').toString());
+    const roles: string[] = p?.realm_access?.roles ?? [];
+    return roles.includes('opsid-admin') && (p.exp ?? 0) > Math.floor(Date.now() / 1000);
+  } catch { return false; }
+}
+
+export const GET: RequestHandler = async ({ url, cookies }) => {
+  if (!requireAdmin(cookies)) return json({ error: 'Forbidden' }, { status: 403 });
   try {
     const tenant = url.searchParams.get('tenant');
     const params: string[] = [];
