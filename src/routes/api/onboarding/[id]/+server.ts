@@ -154,14 +154,17 @@ export const PUT: RequestHandler = async ({ params, request, cookies }) => {
   const primaryEmail = (row.primary_user_email || picEmail).trim().toLowerCase();
   const adminUser    = result.adminUsername ?? primaryEmail.split('@')[0];
 
+  const domainType = (row.domain_type === 'custom_domain' ? 'custom_domain' : 'subdomain') as 'subdomain' | 'custom_domain';
+
   // 1. Kirim ke PIC — selalu reliable (external email)
   sendWelcomeEmail({
-    toEmail:  picEmail,
-    toName:   row.pic_name,
-    company:  row.company_name,
+    toEmail:    picEmail,
+    toName:     row.pic_name,
+    company:    row.company_name,
     domain,
-    username: adminUser,
-    password: adminPassword,
+    username:   adminUser,
+    password:   adminPassword,
+    domainType,
   }).catch(e => console.error('[Onboarding] PIC welcome email failed:', String(e)));
 
   // 2. Kirim ke primary user email jika:
@@ -170,12 +173,13 @@ export const PUT: RequestHandler = async ({ params, request, cookies }) => {
   const onNewDomain = primaryEmail.endsWith('@' + domain);
   if (primaryEmail && primaryEmail !== picEmail && !onNewDomain) {
     sendWelcomeEmail({
-      toEmail:  primaryEmail,
-      toName:   row.primary_user_name || row.pic_name,
-      company:  row.company_name,
+      toEmail:    primaryEmail,
+      toName:     row.primary_user_name || row.pic_name,
+      company:    row.company_name,
       domain,
-      username: adminUser,
-      password: adminPassword,
+      username:   adminUser,
+      password:   adminPassword,
+      domainType,
     }).catch(() => null);
   }
 

@@ -3,13 +3,14 @@ import { randomBytes } from 'crypto';
 import { execSync } from 'child_process';
 import nodemailer from 'nodemailer';
 
-const NGINX_API    = 'http://10.34.1.1:8080';
-const KC_BASE      = 'http://10.34.1.4:8080'; // internal; hairpin NAT blocks public IP from server
-const FREEIPA_URL  = 'https://ipa.opsid.web.id/ipa';
-const FREEIPA_ADMIN = 'admin';
-const FREEIPA_PASS  = 'Sandiaman2026';
+const NGINX_API       = 'http://10.34.1.1:8080';
+const KC_BASE         = 'http://10.34.1.4:8080'; // internal; hairpin NAT blocks public IP from server
+const FREEIPA_URL     = 'https://ipa.opsid.web.id/ipa';
+const FREEIPA_ADMIN   = 'admin';
+const FREEIPA_PASS    = 'Sandiaman2026';
 const PORTAL_UPSTREAM = '10.34.1.2:3000';
-const MAIL_API     = 'http://10.34.1.6:8082';
+const MAIL_API        = 'http://10.34.1.6:8082';
+const PORTAL_SERVER_IP = '103.134.152.140'; // public IP of OPSID gateway (nginx/mail)
 
 // ── Nextcloud ──────────────────────────────────────────────────
 const NC_INTERNAL = 'http://files.opsid.web.id:8080';
@@ -40,17 +41,76 @@ const mailer = nodemailer.createTransport({
   tls:     { rejectUnauthorized: false },
 });
 
+/**
+ * Derive the DNS A-record hostname from a workspace domain.
+ *   portal.1ds.biz.id   → "portal"
+ *   workspace.1go.biz.id → "workspace"
+ *   customer.com         → "@"
+ * Rule: if the domain has more than 2 labels, the first label is the subdomain;
+ * otherwise the customer is using their root domain → "@".
+ */
+function deriveARecordHost(domain: string): string {
+  const labels = domain.toLowerCase().split('.');
+  return labels.length > 2 ? labels[0] : '@';
+}
+
 export async function sendWelcomeEmail(opts: {
-  toEmail:    string;
-  toName:     string;
-  company:    string;
-  domain:     string;
-  username:   string;
-  password:   string;
+  toEmail:     string;
+  toName:      string;
+  company:     string;
+  domain:      string;
+  username:    string;
+  password:    string;
+  domainType?: 'subdomain' | 'custom_domain';
 }): Promise<void> {
-  const { toEmail, toName, company, domain, username, password } = opts;
-  const workspaceUrl = `https://${domain}`;
-  const firstName    = toName.split(' ')[0];
+  const { toEmail, toName, company, domain, username, password, domainType = 'subdomain' } = opts;
+  const workspaceUrl   = `https://${domain}`;
+  const firstName      = toName.split(' ')[0];
+  const isCustomDomain = domainType === 'custom_domain';
+
+  // Derive DNS A-record details dynamically from the provisioned domain.
+  const dnsHost = deriveARecordHost(domain); // e.g. "portal", "workspace", "@"
+
+  // ── DNS setup section — plain text ────────────────────────────
+  const dnsTextSection = isCustomDomain ? [
+    `=== LANGKAH 1: SETUP DNS DOMAIN KAMU ===`,
+    ``,
+    `Workspace kamu menggunakan custom domain. Agar bisa diakses,`,
+    `arahkan DNS berikut dari panel domain/registrar kamu:`,
+    ``,
+    `  Type  : A`,
+    `  Name  : ${dnsHost}`,
+    `  Value : ${PORTAL_SERVER_IP}`,
+    ``,
+    `Catatan: DNS dikelola di panel domain kamu, bukan oleh OPSID.`,
+    `Setelah DNS aktif (biasanya 5–30 menit), workspace bisa diakses`,
+    `melalui URL di bawah.`,
+    ``,
+    `=== LANGKAH 2: INFORMASI LOGIN ===`,
+  ] : [
+    `=== INFORMASI LOGIN ===`,
+  ];
+
+  // ── DNS setup section — HTML ───────────────────────────────────
+  const dnsHtmlSection = isCustomDomain ? `
+    <div style="background:#0d1117;border:1px solid #f59e0b33;border-left:3px solid #f59e0b;border-radius:8px;padding:20px 24px;margin:0 0 24px;">
+      <div style="font-size:11px;font-weight:700;color:#f59e0b;text-transform:uppercase;letter-spacing:.08em;margin-bottom:12px;">Langkah 1 — Setup DNS Domain</div>
+      <p style="font-size:13px;color:#94a3b8;margin:0 0 16px;">Workspace kamu menggunakan custom domain. Agar bisa diakses, arahkan DNS berikut dari <strong style="color:#e2e8f0">panel domain/registrar kamu</strong>:</p>
+      <table style="width:100%;border-collapse:collapse;font-family:'SF Mono',Monaco,Consolas,monospace;font-size:12px;">
+        <tr style="border-bottom:1px solid #1e2330;">
+          <td style="padding:6px 8px;color:#4a5568;font-size:10px;text-transform:uppercase;letter-spacing:.06em;">Type</td>
+          <td style="padding:6px 8px;color:#4a5568;font-size:10px;text-transform:uppercase;letter-spacing:.06em;">Name / Host</td>
+          <td style="padding:6px 8px;color:#4a5568;font-size:10px;text-transform:uppercase;letter-spacing:.06em;">Value / Target</td>
+        </tr>
+        <tr>
+          <td style="padding:8px;color:#5b86ff;font-weight:600;">A</td>
+          <td style="padding:8px;color:#e2e8f0;">${dnsHost}</td>
+          <td style="padding:8px;color:#e2e8f0;">${PORTAL_SERVER_IP}</td>
+        </tr>
+      </table>
+      <p style="font-size:12px;color:#64748b;margin:14px 0 0;">DNS dikelola di panel registrar domain kamu. Setelah aktif (biasanya 5–30 menit), workspace langsung bisa diakses.</p>
+    </div>
+    <div style="font-size:11px;font-weight:700;color:#5b86ff;text-transform:uppercase;letter-spacing:.08em;margin:24px 0 12px;">Langkah 2 — Informasi Login</div>` : '';
 
   await mailer.sendMail({
     from:    '"OPSID Workspace" <noreply@opsid.web.id>',
@@ -61,16 +121,23 @@ export async function sendWelcomeEmail(opts: {
       ``,
       `Workspace OPSID untuk ${company} sudah berhasil diaktifkan.`,
       ``,
-      `=== INFORMASI LOGIN ===`,
+      ...dnsTextSection,
       `URL Workspace : ${workspaceUrl}`,
       `Username      : ${username}`,
       `Password      : ${password}`,
       ``,
-      `Langkah pertama:`,
-      `1. Buka ${workspaceUrl}`,
-      `2. Klik "Masuk dengan SSO"`,
-      `3. Masukkan username dan password di atas`,
-      `4. Kamu akan masuk ke dashboard OPSID`,
+      `Langkah${isCustomDomain ? ' selanjutnya' : ' pertama'}:`,
+      ...(isCustomDomain ? [
+        `1. Pastikan DNS sudah aktif (cek di panel domain kamu)`,
+        `2. Buka ${workspaceUrl}`,
+        `3. Klik "Masuk dengan SSO"`,
+        `4. Masukkan username dan password di atas`,
+      ] : [
+        `1. Buka ${workspaceUrl}`,
+        `2. Klik "Masuk dengan SSO"`,
+        `3. Masukkan username dan password di atas`,
+        `4. Kamu akan masuk ke dashboard OPSID`,
+      ]),
       ``,
       `Setelah login, kamu bisa mengakses semua aplikasi dari sidebar portal.`,
       `Klik "Mail", "Drive", atau "Odoo ERP" di sidebar setelah masuk.`,
@@ -92,7 +159,7 @@ export async function sendWelcomeEmail(opts: {
   .body { padding: 32px 36px; }
   h2 { font-size: 18px; color: #f1f5f9; margin: 0 0 8px; }
   p { font-size: 14px; color: #94a3b8; line-height: 1.6; margin: 0 0 16px; }
-  .creds { background: #0d1117; border: 1px solid #1e2330; border-radius: 8px; padding: 20px 24px; margin: 24px 0; }
+  .creds { background: #0d1117; border: 1px solid #1e2330; border-radius: 8px; padding: 20px 24px; margin: 0 0 24px; }
   .cred-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid #1a1f2e; }
   .cred-row:last-child { border-bottom: none; }
   .cred-label { font-size: 11px; color: #4a5568; text-transform: uppercase; letter-spacing: .06em; }
@@ -111,8 +178,10 @@ export async function sendWelcomeEmail(opts: {
     <div class="logo-sub">Open Platform Sovereign Indonesia</div>
   </div>
   <div class="body">
-    <h2>Workspace ${company} sudah aktif 🎉</h2>
-    <p>Halo <strong>${firstName}</strong>, workspace OPSID kamu sudah siap digunakan.</p>
+    <h2>Workspace ${company} sudah aktif</h2>
+    <p>Halo <strong>${firstName}</strong>, workspace OPSID untuk <strong>${company}</strong> sudah berhasil diaktifkan.</p>
+
+    ${dnsHtmlSection}
 
     <div class="creds">
       <div class="cred-row">
@@ -359,16 +428,41 @@ async function createKeycloakOrg(slug: string, name: string, domain: string): Pr
       const fromLoc = loc.split('/').pop() ?? null;
       if (fromLoc) return fromLoc;
     }
-    // Fallback: search by alias (Location header missing in some KC versions)
-    const searchRes = await fetch(
-      `${KC_BASE}/admin/realms/opsid-internal/organizations?search=${encodeURIComponent(slug)}&exact=true`,
-      { headers: { 'Authorization': `Bearer ${token}` } }
-    );
-    const orgs: any[] = await searchRes.json().catch(() => []);
-    return orgs.find((o: any) => o.alias === slug)?.id ?? null;
+    // Fallback: search by domain first, then alias.
+    return await findKcOrgId(slug, domain);
   }
   const text = await res.text().catch(() => '');
   throw new Error(`KC org create status ${res.status}: ${text.slice(0, 200)}`);
+}
+
+async function findKcOrgId(slug: string, domain: string): Promise<string | null> {
+  const token = await getKcToken();
+
+  async function searchOrg(q: string): Promise<any[]> {
+    const r = await fetch(
+      `${KC_BASE}/admin/realms/opsid-internal/organizations?search=${encodeURIComponent(q)}`,
+      { headers: { 'Authorization': `Bearer ${token}` } }
+    );
+    if (!r.ok) return [];
+    return await r.json().catch(() => []);
+  }
+
+  // Keycloak Organization search di environment ini tidak selalu match alias.
+  // Untuk custom domain seperti portal.1ds.biz.id, search by domain yang reliable.
+  const byDomain = await searchOrg(domain);
+  const matchDomain = byDomain.find((o: any) =>
+    o.alias === slug ||
+    o.name === slug ||
+    o.domains?.some((d: any) => d.name === domain)
+  );
+  if (matchDomain?.id) return matchDomain.id;
+
+  const bySlug = await searchOrg(slug);
+  const matchSlug = bySlug.find((o: any) =>
+    o.alias === slug ||
+    o.domains?.some((d: any) => d.name === domain)
+  );
+  return matchSlug?.id ?? null;
 }
 
 
@@ -763,30 +857,46 @@ async function getOrCreateOdooCompany(session: string, slug: string, name: strin
 
 /**
  * Find-or-create Odoo user for tenant admin.
- * Login = admin@{domain}. oauth_uid is set on first KC login.
+ * Sets oauth_provider_id + oauth_uid so SSO login works without a manual first-login step.
+ *
+ * @param kcUserId  Keycloak user UUID — when provided, oauth_uid is set immediately
+ *                  so the user can log in via SSO without requiring a manual fix.
  */
-async function getOrCreateOdooUser(session: string, login: string, name: string, companyId: number): Promise<number> {
+async function getOrCreateOdooUser(
+  session:   string,
+  login:     string,
+  name:      string,
+  companyId: number,
+  kcUserId?: string | null,
+): Promise<number> {
   const existing: any[] = await odooCall(session, 'res.users', 'search_read',
-    [[['login', '=', login]]], { fields: ['id', 'login', 'company_id'], limit: 1 });
+    [[['login', '=', login]]], { fields: ['id', 'login', 'company_id', 'oauth_uid'], limit: 1 });
+
   if (existing.length) {
-    // Ensure user is associated with the right company
     const uid = existing[0].id;
-    await odooCall(session, 'res.users', 'write', [[uid], {
-      company_id:  companyId,
-      company_ids: [[4, companyId]],  // link (no unlink)
-    }]).catch(() => null);
+    const patch: Record<string, any> = {
+      company_id:        companyId,
+      company_ids:       [[4, companyId]],
+      oauth_provider_id: ODOO_KC_PROV,
+    };
+    // Always overwrite oauth_uid when kcUserId is provided — fixes existing users with oauth_uid=false
+    if (kcUserId) patch.oauth_uid = kcUserId;
+    await odooCall(session, 'res.users', 'write', [[uid], patch]).catch(() => null);
     return uid;
   }
 
-  const uid: number = await odooCall(session, 'res.users', 'create', [{
+  const createPayload: Record<string, any> = {
     login,
     name,
     company_id:           companyId,
     company_ids:          [[4, companyId]],
     oauth_provider_id:    ODOO_KC_PROV,
-    sel_groups_1_10_11:   1,           // Internal User
+    sel_groups_1_10_11:   1,   // Internal User
     active:               true,
-  }]);
+  };
+  if (kcUserId) createPayload.oauth_uid = kcUserId;
+
+  const uid: number = await odooCall(session, 'res.users', 'create', [createPayload]);
   return uid;
 }
 
@@ -935,13 +1045,7 @@ export async function provisionTenant(input: ProvisionInput): Promise<ProvisionR
   // OR org already existed from a conflict), search by alias.
   if (!orgId) {
     try {
-      const token = await getKcToken();
-      const r = await fetch(
-        `${KC_BASE}/admin/realms/opsid-internal/organizations?search=${encodeURIComponent(slug)}&exact=true`,
-        { headers: { 'Authorization': `Bearer ${token}` } }
-      );
-      const orgs: any[] = await r.json().catch(() => []);
-      orgId = orgs.find((o: any) => o.alias === slug)?.id ?? null;
+      orgId = await findKcOrgId(slug, domain);
     } catch { /* best-effort */ }
   }
 
@@ -1077,8 +1181,8 @@ export async function provisionTenant(input: ProvisionInput): Promise<ProvisionR
   try {
     const odooSess    = await odooGetSession();
     const companyId   = await getOrCreateOdooCompany(odooSess, slug, name, domain);
-    // Gunakan adminEmail (email user utama) sebagai Odoo login agar sesuai SSO
-    await getOrCreateOdooUser(odooSess, adminEmail, adminName, companyId);
+    // Pass kcUserId agar oauth_uid langsung terisi → SSO login bisa tanpa manual fix
+    await getOrCreateOdooUser(odooSess, adminEmail, adminName, companyId, kcUserId);
     steps.push({ step: 'odoo_company', ok: true });
     steps.push({ step: 'odoo_user',    ok: true });
   } catch (e: any) {
@@ -1111,21 +1215,37 @@ export async function provisionTenant(input: ProvisionInput): Promise<ProvisionR
     steps.push({ step: 'postfix_domain', ok: false, error: String(e) });
   }
 
-  // ── Step 13b: DKIM generation + save to DB ────────────────────
-  try {
-    const dkimKey = await generateDkim(mailDomain, 'mail');
+  // ── Step 13b: DKIM — custom domain only ──────────────────────
+  // OPSID subdomains (*.opsid.web.id) use the global key at opsid.web.id.
+  // No per-tenant DKIM key needed — OpenDKIM signs all *@*.opsid.web.id
+  // with d=opsid.web.id via the wildcard SigningTable entry.
+  // Custom domains still get a per-domain key so the customer can publish
+  // their own DKIM record in their registrar.
+  const isOpsidSubdomain = mailDomain.endsWith('.opsid.web.id') || mailDomain === 'opsid.web.id';
+
+  if (isOpsidSubdomain) {
+    // Just record mail_domain; no key generation needed.
     await db.query(
-      `UPDATE tenants
-       SET    mail_domain       = $1,
-              dkim_selector     = 'mail',
-              dkim_public_key   = $2,
-              dkim_generated_at = NOW()
-       WHERE  id = $3`,
-      [mailDomain, dkimKey, tenant.id]
-    );
-    steps.push({ step: 'dkim', ok: !!dkimKey, error: dkimKey ? undefined : 'DKIM key missing — check mail-api' });
-  } catch (e: any) {
-    steps.push({ step: 'dkim', ok: false, error: String(e) });
+      `UPDATE tenants SET mail_domain = $1, dkim_selector = 'mail' WHERE id = $2`,
+      [mailDomain, tenant.id]
+    ).catch(() => null);
+    steps.push({ step: 'dkim', ok: true, error: 'opsid subdomain — global key used' });
+  } else {
+    try {
+      const dkimKey = await generateDkim(mailDomain, 'mail');
+      await db.query(
+        `UPDATE tenants
+         SET    mail_domain       = $1,
+                dkim_selector     = 'mail',
+                dkim_public_key   = $2,
+                dkim_generated_at = NOW()
+         WHERE  id = $3`,
+        [mailDomain, dkimKey, tenant.id]
+      );
+      steps.push({ step: 'dkim', ok: !!dkimKey, error: dkimKey ? undefined : 'DKIM key missing — check mail-api' });
+    } catch (e: any) {
+      steps.push({ step: 'dkim', ok: false, error: String(e) });
+    }
   }
 
   // ── Step 14: Post-provisioning smoke test ─────────────────────
@@ -1210,13 +1330,63 @@ export async function reprovisionTenant(input: ReprovisionInput): Promise<Reprov
     }
   }
 
-  // ── SSL (custom domain only) ──────────────────────────────────
-  if (want('ssl_certbot') && domain_type === 'custom_domain') {
-    try {
-      await sslProvision(domain, slug);
-      steps.push({ step: 'ssl_certbot', ok: true });
-    } catch (e: any) {
-      steps.push({ step: 'ssl_certbot', ok: false, error: String(e) });
+  // ── SSL + drive/erp vhosts (custom domain only) ─────────────
+  if (domain_type === 'custom_domain') {
+    const baseDomain  = domain.split('.').slice(1).join('.');
+    const driveDomain = `drive.${baseDomain}`;
+    const erpDomain   = `erp.${baseDomain}`;
+
+    if (want('ssl_certbot')) {
+      try {
+        await sslProvision(domain, slug);
+        steps.push({ step: 'ssl_certbot', ok: true });
+      } catch (e: any) {
+        steps.push({ step: 'ssl_certbot', ok: false, error: String(e) });
+      }
+    }
+
+    if (want('nginx_drive')) {
+      try {
+        const r = await fetch(`${NGINX_API}/ssl/issue-nc`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ nc_domain: driveDomain, portal_domain: domain }),
+        });
+        steps.push({ step: 'nginx_drive', ok: r.ok, error: r.ok ? undefined : `HTTP ${r.status}` });
+      } catch (e: any) {
+        steps.push({ step: 'nginx_drive', ok: false, error: String(e) });
+      }
+    }
+
+    if (want('nginx_erp')) {
+      try {
+        const r = await fetch(`${NGINX_API}/ssl/issue-odoo`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ erp_domain: erpDomain, portal_domain: domain }),
+        });
+        steps.push({ step: 'nginx_erp', ok: r.ok, error: r.ok ? undefined : `HTTP ${r.status}` });
+      } catch (e: any) {
+        steps.push({ step: 'nginx_erp', ok: false, error: String(e) });
+      }
+    }
+
+    if (want('kc_redirect_uris')) {
+      try {
+        await addKcRedirectUrisForTenant(driveDomain, erpDomain);
+        steps.push({ step: 'kc_redirect_uris', ok: true });
+      } catch (e: any) {
+        steps.push({ step: 'kc_redirect_uris', ok: false, error: String(e) });
+      }
+    }
+
+    if (want('nc_trusted_domain')) {
+      try {
+        await addNcTrustedDomain(driveDomain);
+        steps.push({ step: 'nc_trusted_domain', ok: true });
+      } catch (e: any) {
+        steps.push({ step: 'nc_trusted_domain', ok: false, error: String(e) });
+      }
     }
   }
 
@@ -1246,13 +1416,7 @@ export async function reprovisionTenant(input: ReprovisionInput): Promise<Reprov
 
       if (conflict) {
         try {
-          const token = await getKcToken();
-          const r = await fetch(
-            `${KC_BASE}/admin/realms/opsid-internal/organizations?search=${encodeURIComponent(slug)}`,
-            { headers: { 'Authorization': `Bearer ${token}` } }
-          );
-          const orgs: any[] = await r.json().catch(() => []);
-          orgId = orgs.find((o: any) => o.alias === slug)?.id ?? null;
+          orgId = await findKcOrgId(slug, domain);
         } catch {}
       }
     }
@@ -1294,13 +1458,7 @@ export async function reprovisionTenant(input: ReprovisionInput): Promise<Reprov
     if (!orgId) {
       // try to find existing org
       try {
-        const token = await getKcToken();
-        const r = await fetch(
-          `${KC_BASE}/admin/realms/opsid-internal/organizations?search=${encodeURIComponent(slug)}`,
-          { headers: { 'Authorization': `Bearer ${token}` } }
-        );
-        const orgs: any[] = await r.json().catch(() => []);
-        orgId = orgs.find((o: any) => o.alias === slug)?.id ?? null;
+        orgId = await findKcOrgId(slug, domain);
       } catch { /* ignore */ }
     }
     if (!kcUserId) kcUserId = await findKcUserByUsername(adminUsername).catch(() => null);
@@ -1387,7 +1545,9 @@ export async function reprovisionTenant(input: ReprovisionInput): Promise<Reprov
           [[['website', '=', `opsid-slug:${slug}`]]], { fields: ['id'], limit: 1 });
         const companyId = companies[0]?.id;
         if (companyId) {
-          await getOrCreateOdooUser(odooSess, `admin@${domain}`, name, companyId);
+          // Lookup kcUserId by username so oauth_uid gets set correctly (fixes oauth_uid=false)
+          const reprovKcUserId = await findKcUserByUsername(adminUsername).catch(() => null);
+          await getOrCreateOdooUser(odooSess, adminEmail, adminName, companyId, reprovKcUserId);
           steps.push({ step: 'odoo_user', ok: true });
         } else {
           steps.push({ step: 'odoo_user', ok: false, error: 'odoo_company not found for user link' });
