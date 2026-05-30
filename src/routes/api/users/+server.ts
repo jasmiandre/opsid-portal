@@ -5,6 +5,7 @@ import db from '$lib/db';
 const FREEIPA_URL   = 'https://ipa.opsid.web.id/ipa';
 const FREEIPA_ADMIN = 'admin';
 const FREEIPA_PASS  = 'Sandiaman2026';
+const KC_BASE       = 'http://10.34.1.4:8080';
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
@@ -171,54 +172,179 @@ export const GET: RequestHandler = async ({ cookies }) => {
   }
 };
 
-// ── POST — create user di FreeIPA ────────────────────────────────────────────
+// ── KC helpers ────────────────────────────────────────────────────────────────
+
+async function kcAdminToken(): Promise<string> {
+  const r = await fetch(`${KC_BASE}/realms/master/protocol/openid-connect/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'client_id=admin-cli&grant_type=password&username=opsid-admin&password=sandiaman2026',
+  });
+  const d = await r.json();
+  if (!d.access_token) throw new Error('KC token gagal');
+  return d.access_token;
+}
+
+async function kcCreateUser(token: string, username: string, fullname: string, email: string, password: string): Promise<string | null> {
+  const names = fullname.trim().split(' ');
+  const r = await fetch(`${KC_BASE}/admin/realms/opsid-internal/users`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      username, email,
+      firstName:     names[0],
+      lastName:      names.slice(1).join(' ') || names[0],
+      enabled:       true,
+      emailVerified: true,
+      credentials:   [{ type: 'password', value: password, temporary: false }],
+    }),
+  });
+  if (r.status === 201) {
+    const loc = r.headers.get('location');
+    return loc ? loc.split('/').pop() ?? null : null;
+  }
+  if (r.status === 409) {
+    // Already exists — find by username
+    const sr = await fetch(
+      `${KC_BASE}/admin/realms/opsid-internal/users?username=${encodeURIComponent(username)}&exact=true`,
+      { headers: { 'Authorization': `Bearer ${token}` } }
+    );
+    const users = await sr.json().catch(() => []);
+    return users[0]?.id ?? null;
+  }
+  const body = await r.text().catch(() => '');
+  throw new Error(`KC user create ${r.status}: ${body.slice(0, 120)}`);
+}
+
+async function kcFindOrg(token: string, slug: string, domain: string): Promise<string | null> {
+  async function search(q: string): Promise<any[]> {
+    const r = await fetch(
+      `${KC_BASE}/admin/realms/opsid-internal/organizations?search=${encodeURIComponent(q)}`,
+      { headers: { 'Authorization': `Bearer ${token}` } }
+    );
+    return r.ok ? r.json().catch(() => []) : [];
+  }
+  const byDomain = await search(domain);
+  const m = byDomain.find((o: any) => o.alias === slug || o.domains?.some((d: any) => d.name === domain));
+  if (m?.id) return m.id;
+  const bySlug = await search(slug);
+  return bySlug.find((o: any) => o.alias === slug)?.id ?? null;
+}
+
+// ── Derive username from full name + tenant domain ────────────────────────────
+function deriveUsername(fullname: string, tenantDomain: string): string {
+  const firstName = fullname.trim().split(' ')[0].toLowerCase().replace(/[^a-z0-9]/g, '');
+  // OPSID subdomain: use first label  (atom.opsid.web.id → atom)
+  // Custom domain:   use first label of mail domain from email
+  const labels = tenantDomain.split('.');
+  const short = tenantDomain.endsWith('.opsid.web.id')
+    ? labels[0]
+    : labels[0];
+  const username = `${firstName}.${short}`.replace(/[^a-z0-9._-]/g, '').slice(0, 32);
+  return username;
+}
+
+// ── POST — create user (FreeIPA + Keycloak + DB) ─────────────────────────────
 
 export const POST: RequestHandler = async ({ request, cookies }) => {
-  // Require at minimum a valid authenticated session
   const token   = cookies.get('opsid_token');
   const payload = token ? decodeToken(token) : null;
   if (!payload?.preferred_username)
     return json({ success: false, error: 'Unauthorized' }, { status: 401 });
-  const roles: string[]  = payload?.realm_access?.roles ?? [];
+
+  const roles: string[] = payload?.realm_access?.roles ?? [];
   const isAdmin = roles.includes('opsid-admin');
-  const isTenantAdmin = !isAdmin && await (async () => {
-    const row = await db.query(
-      `SELECT 1 FROM tenant_users
-       WHERE  (username = $1 OR lower(email) = lower($2))
-         AND  role = 'org-admin' AND status = 'active'
+
+  // Resolve tenant: superadmin passes tenantId (null = OPSID platform), tenant admin inferred from session
+  let tenantRow: any = null;
+  if (isAdmin) {
+    const body = await request.clone().json().catch(() => ({}));
+    const { tenantId } = body;
+    // tenantId null/undefined = OPSID platform user (no tenant)
+    if (tenantId) {
+      tenantRow = (await db.query(
+        `SELECT id, slug, domain, name FROM tenants WHERE id = $1`, [tenantId]
+      ).catch(() => ({ rows: [] }))).rows[0];
+      if (!tenantRow) return json({ success: false, error: 'Tenant tidak ditemukan' }, { status: 404 });
+    }
+    // tenantRow stays null for platform users — handled below
+  } else {
+    tenantRow = (await db.query(
+      `SELECT t.id, t.slug, t.domain, t.name
+       FROM   tenant_users tu JOIN tenants t ON tu.tenant_id = t.id
+       WHERE  (tu.username = $1 OR lower(tu.email) = lower($2))
+         AND  tu.role = 'org-admin' AND tu.status = 'active'
        LIMIT  1`,
       [payload.preferred_username, payload.email ?? '']
-    ).then(r => r.rows[0]).catch(() => null);
-    return !!row;
-  })();
-  if (!isAdmin && !isTenantAdmin)
-    return json({ success: false, error: 'Forbidden' }, { status: 403 });
-
-  const { username, name, fullname, email, password, dept, role } = await request.json();
-
-  if (!username || !(fullname || name) || !email || !password) {
-    return json({ success: false, error: 'Username, nama, email, dan password wajib diisi' }, { status: 400 });
+    ).catch(() => ({ rows: [] }))).rows[0];
+    if (!tenantRow) return json({ success: false, error: 'Forbidden' }, { status: 403 });
   }
 
+  const { fullname, email, password, role } = await request.json();
+  if (!fullname?.trim() || !email?.trim() || !password)
+    return json({ success: false, error: 'Nama, email, dan password wajib diisi' }, { status: 400 });
+
+  const cleanEmail    = email.trim().toLowerCase();
+  const cleanFullname = fullname.trim();
+  const isPlatform    = !tenantRow; // no tenant = OPSID platform user
+  const domain        = isPlatform ? 'opsid.web.id' : tenantRow.domain;
+  const username      = deriveUsername(cleanFullname, domain);
+  const dbRole        = role === 'org-admin' ? 'org-admin' : 'member';
+
   try {
-    const cookie = await ipaLogin();
-    const names    = (fullname || name).trim().split(' ');
-    const givenname = names[0];
-    const sn        = names.slice(1).join(' ') || names[0];
-
-    const result = await ipaCall(cookie, 'user_add', [username], {
-      givenname,
-      sn,
-      cn:               fullname || name,
-      mail:             email,
+    // 1. FreeIPA user
+    const ipaCookie = await ipaLogin();
+    const names     = cleanFullname.split(' ');
+    const ipaRes    = await ipaCall(ipaCookie, 'user_add', [username], {
+      givenname:        names[0],
+      sn:               names.slice(1).join(' ') || names[0],
+      cn:               names[0],
+      mail:             cleanEmail,
       userpassword:     password,
-      departmentnumber: dept ? [dept] : undefined,
-      title:            role || 'Staff',
+      departmentnumber: isPlatform ? ['opsid'] : [tenantRow.slug],
+      title:            dbRole,
     });
+    if (ipaRes.error && !ipaRes.error.message?.includes('already exists'))
+      return json({ success: false, error: ipaRes.error.message }, { status: 400 });
 
-    if (result.error) return json({ success: false, error: result.error.message }, { status: 400 });
+    // Extend password expiry
+    await ipaCall(ipaCookie, 'user_mod', [username], {
+      setattr: 'krbpasswordexpiration=20301231000000Z',
+    }).catch(() => null);
 
-    return json({ success: true, message: `User ${fullname || name} berhasil dibuat.` });
+    // Add to tenant group (skip for platform users)
+    if (!isPlatform) {
+      await ipaCall(ipaCookie, 'group_add_member', [`${tenantRow.slug}-users`], { user: username }).catch(() => null);
+    }
+
+    // 2. Keycloak user
+    const kcToken  = await kcAdminToken();
+    const kcUserId = await kcCreateUser(kcToken, username, cleanFullname, cleanEmail, password);
+
+    // Add to KC org (tenant users only)
+    if (kcUserId && !isPlatform) {
+      const orgId = await kcFindOrg(kcToken, tenantRow.slug, tenantRow.domain);
+      if (orgId) {
+        await fetch(`${KC_BASE}/admin/realms/opsid-internal/organizations/${orgId}/members`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${kcToken}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify(kcUserId),
+        }).catch(() => null);
+      }
+    }
+
+    // 3. DB record (tenant users only)
+    if (!isPlatform) {
+      await db.query(
+        `INSERT INTO tenant_users (tenant_id, username, email, full_name, role, is_admin, status)
+         VALUES ($1,$2,$3,$4,$5,$6,'active')
+         ON CONFLICT (tenant_id, username) DO UPDATE
+           SET email=$3, full_name=$4, role=$5, is_admin=$6`,
+        [tenantRow.id, username, cleanEmail, cleanFullname, dbRole, dbRole === 'org-admin']
+      );
+    }
+
+    return json({ success: true, username, message: `User ${cleanFullname} (${username}) berhasil dibuat.` });
   } catch (err) {
     return json({ success: false, error: String(err) }, { status: 500 });
   }

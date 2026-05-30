@@ -55,18 +55,48 @@ async function findKcUserId(kcToken: string, username: string): Promise<string |
   return users[0]?.id ?? null;
 }
 
-function requireAdminAuth(cookies: any): { ok: false; res: Response } | { ok: true; actor: string } {
+function decodePayload(cookies: any): any | null {
   const token = cookies.get('opsid_token');
-  if (!token) return { ok: false, res: json({ ok: false, error: 'Unauthorized' }, { status: 401 }) as Response };
+  if (!token) return null;
   try {
     const b64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
-    const p   = JSON.parse(Buffer.from(b64, 'base64').toString('utf8'));
-    if (!(p?.realm_access?.roles ?? []).includes('opsid-admin'))
-      return { ok: false, res: json({ ok: false, error: 'Forbidden — hanya superadmin' }, { status: 403 }) as Response };
-    return { ok: true, actor: p.preferred_username ?? 'admin' };
-  } catch {
-    return { ok: false, res: json({ ok: false, error: 'Invalid token' }, { status: 401 }) as Response };
-  }
+    return JSON.parse(Buffer.from(b64, 'base64').toString('utf8'));
+  } catch { return null; }
+}
+
+function requireAdminAuth(cookies: any): { ok: false; res: Response } | { ok: true; actor: string } {
+  const p = decodePayload(cookies);
+  if (!p) return { ok: false, res: json({ ok: false, error: 'Unauthorized' }, { status: 401 }) as Response };
+  if (!(p?.realm_access?.roles ?? []).includes('opsid-admin'))
+    return { ok: false, res: json({ ok: false, error: 'Forbidden — hanya superadmin' }, { status: 403 }) as Response };
+  return { ok: true, actor: p.preferred_username ?? 'admin' };
+}
+
+// ── KC realm role helpers ────────────────────────────────────
+
+async function kcGetRealmRole(kcToken: string, roleName: string): Promise<{ id: string; name: string } | null> {
+  const res = await fetch(
+    `${KC_BASE}/admin/realms/opsid-internal/roles/${encodeURIComponent(roleName)}`,
+    { headers: { 'Authorization': `Bearer ${kcToken}` } }
+  );
+  if (!res.ok) return null;
+  return res.json().catch(() => null);
+}
+
+async function kcAssignRealmRole(kcToken: string, userId: string, role: { id: string; name: string }): Promise<void> {
+  await fetch(`${KC_BASE}/admin/realms/opsid-internal/users/${userId}/role-mappings/realm`, {
+    method:  'POST',
+    headers: { 'Authorization': `Bearer ${kcToken}`, 'Content-Type': 'application/json' },
+    body:    JSON.stringify([role]),
+  });
+}
+
+async function kcRemoveRealmRole(kcToken: string, userId: string, role: { id: string; name: string }): Promise<void> {
+  await fetch(`${KC_BASE}/admin/realms/opsid-internal/users/${userId}/role-mappings/realm`, {
+    method:  'DELETE',
+    headers: { 'Authorization': `Bearer ${kcToken}`, 'Content-Type': 'application/json' },
+    body:    JSON.stringify([role]),
+  });
 }
 
 // ── PATCH ────────────────────────────────────────────────────
@@ -205,6 +235,89 @@ export const PATCH: RequestHandler = async ({ params, request, cookies }) => {
     return json({
       ok: true, success: true,
       message:  `Password ${username} berhasil direset`,
+      warnings: errors.length ? errors : undefined,
+    });
+  }
+
+  // ── set_role ─────────────────────────────────────────────────
+  // Superadmin: member | org-admin | superadmin (any user)
+  // Tenant admin: member | org-admin (only users in their own tenant)
+  if (action === 'set_role') {
+    const { role: newRole, tenantId } = body as { role: string; tenantId?: number };
+    if (!['member', 'org-admin', 'superadmin'].includes(newRole))
+      return json({ ok: false, error: 'Role tidak valid' }, { status: 400 });
+
+    const p = decodePayload(cookies);
+    if (!p) return json({ ok: false, error: 'Unauthorized' }, { status: 401 });
+    const callerIsAdmin = (p.realm_access?.roles ?? []).includes('opsid-admin');
+
+    // Tenant admin may only change roles within their own tenant (not to superadmin)
+    if (!callerIsAdmin) {
+      if (newRole === 'superadmin')
+        return json({ ok: false, error: 'Forbidden — hanya superadmin yang bisa assign superadmin' }, { status: 403 });
+      const tenantRow = await db.query(
+        `SELECT t.id, t.slug FROM tenant_users tu JOIN tenants t ON tu.tenant_id = t.id
+         WHERE (tu.username = $1 OR lower(tu.email) = lower($2))
+           AND tu.role = 'org-admin' AND tu.status = 'active' LIMIT 1`,
+        [p.preferred_username, p.email ?? '']
+      ).then(r => r.rows[0]).catch(() => null);
+      if (!tenantRow) return json({ ok: false, error: 'Forbidden' }, { status: 403 });
+      // Verify target user belongs to this tenant
+      const targetInTenant = await db.query(
+        `SELECT 1 FROM tenant_users WHERE username = $1 AND tenant_id = $2 LIMIT 1`,
+        [username, tenantRow.id]
+      ).then(r => r.rows[0]).catch(() => null);
+      if (!targetInTenant) return json({ ok: false, error: 'User tidak ada di tenant kamu' }, { status: 403 });
+    }
+
+    const errors: string[] = [];
+
+    // 1. KC realm role (superadmin ↔ not-superadmin)
+    try {
+      const kcToken  = await getKcToken();
+      const userId   = await findKcUserId(kcToken, username);
+      const adminRole = await kcGetRealmRole(kcToken, 'opsid-admin');
+
+      if (userId && adminRole) {
+        if (newRole === 'superadmin') {
+          await kcAssignRealmRole(kcToken, userId, adminRole);
+        } else {
+          // Check if user currently has the role before removing
+          const curRoles = await fetch(
+            `${KC_BASE}/admin/realms/opsid-internal/users/${userId}/role-mappings/realm`,
+            { headers: { 'Authorization': `Bearer ${kcToken}` } }
+          ).then(r => r.json()).catch(() => []);
+          if (Array.isArray(curRoles) && curRoles.some((r: any) => r.name === 'opsid-admin')) {
+            await kcRemoveRealmRole(kcToken, userId, adminRole);
+          }
+        }
+      }
+    } catch (e) { errors.push(`KC realm role: ${String(e)}`); }
+
+    // 2. FreeIPA title
+    try {
+      const cookie = await ipaLogin();
+      await ipaCall(cookie, 'user_mod', [username], { title: newRole });
+    } catch (e) { errors.push(`FreeIPA title: ${String(e)}`); }
+
+    // 3. DB tenant_users (only for org-admin / member, not superadmin)
+    if (newRole !== 'superadmin') {
+      const targetTenantId = tenantId ?? (await db.query(
+        `SELECT tenant_id FROM tenant_users WHERE username = $1 LIMIT 1`, [username]
+      ).then(r => r.rows[0]?.tenant_id).catch(() => null));
+
+      if (targetTenantId) {
+        await db.query(
+          `UPDATE tenant_users SET role = $1, is_admin = $2 WHERE username = $3 AND tenant_id = $4`,
+          [newRole, newRole === 'org-admin', username, targetTenantId]
+        ).catch(() => null);
+      }
+    }
+
+    await logAudit(actor, 'SET_ROLE', username, { newRole, errors });
+    return json({
+      ok: true, success: true,
+      message:  `Role ${username} diubah ke ${newRole}`,
       warnings: errors.length ? errors : undefined,
     });
   }

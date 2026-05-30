@@ -22,6 +22,7 @@
     key:     `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/></svg>`,
     check:   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><polyline points="20 6 9 17 4 12"/></svg>`,
     download:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`,
+    refresh:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>`,
     x:       `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
     bell:    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 7 3 9H3c0-2 3-2 3-9Z"/><path d="M10 21a2 2 0 0 0 4 0"/></svg>`,
     searchSm:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><circle cx="11" cy="11" r="7"/><path d="m20 20-4.3-4.3"/></svg>`,
@@ -145,6 +146,12 @@
   let editBusy    = $state(false);
   let editMsg     = $state('');
 
+  // ── Privilege modal ─────────────────────────────────────────
+  let privilegeTarget = $state<User | null>(null);
+  let privilegeRole   = $state('');
+  let privilegeBusy   = $state(false);
+  let privilegeMsg    = $state('');
+
   // ── Delete User confirmation ────────────────────────────────
   let deleteUserTarget = $state<User | null>(null);
 
@@ -229,14 +236,17 @@
 
   // ── Forms ───────────────────────────────────────────────────
   let newUser = $state({
-    username: '', fullname: '', email: '', dept: '', role: 'Staff', password: ''
+    fullname: '', email: '', password: '', role: 'member',
+    tenantId: '' as string | number,
   });
+  let newUserMsg = $state('');
   let newTenant = $state({
     name: '', slug: '', primaryColor: '#3B82F6', logoUrl: '',
     planNextcloudGb: 50, planEmailGb: 50, planOdooGb: 50,
     useCustomDomain: false, domain: '',
-    adminName: '', adminPassword: ''
+    adminName: '', adminEmail: '', adminPassword: '',
   });
+  let createTenantMsg = $state('');
   // Track if user manually edited the slug so we stop auto-generating
   let slugManuallyEdited = $state(false);
 
@@ -477,41 +487,70 @@
   }
 
   async function createUser() {
-    if (!newUser.username || !newUser.fullname || !newUser.email || !newUser.password) return;
-    // Validate email domain for tenant admins
-    if (!auth.profile.isAdmin) {
-      const expectedDomain = auth.profile.tenantDomain || (auth.profile.organizationSlug ? auth.profile.organizationSlug + '.opsid.web.id' : null);
-      if (expectedDomain && !newUser.email.endsWith('@' + expectedDomain)) {
-        alert(`Email harus menggunakan domain @${expectedDomain}`);
-        return;
-      }
+    newUserMsg = '';
+    if (!newUser.fullname.trim() || !newUser.email.trim() || !newUser.password) {
+      newUserMsg = 'Nama, email, dan password wajib diisi.'; return;
     }
+    // tenantId kosong = OPSID Platform — valid untuk superadmin
     submitting = true;
     try {
       const res = await fetch('/api/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newUser),
+        body: JSON.stringify({
+          fullname:  newUser.fullname.trim(),
+          email:     newUser.email.trim().toLowerCase(),
+          password:  newUser.password,
+          role:      newUser.role,
+          tenantId:  auth.profile.isAdmin ? newUser.tenantId : undefined,
+        }),
       });
       const data = await res.json();
       if (data.success) {
         showAddUser = false;
-        newUser = { username: '', fullname: '', email: '', dept: '', role: 'Staff', password: '' };
+        newUser = { fullname: '', email: '', password: '', role: 'member', tenantId: '' };
+        newUserMsg = '';
         await fetchUsers();
+      } else {
+        newUserMsg = data.error ?? 'Gagal membuat user.';
       }
     } catch (e) {
-      console.error('Create user failed:', e);
+      newUserMsg = String(e);
     }
     submitting = false;
   }
 
-  async function createTenant() {
-    if (!newTenant.name) return;
-    if (!newTenant.slug) newTenant.slug = generateSlug(newTenant.name);
-    if (!newTenant.adminName || !newTenant.adminPassword) {
-      alert('Nama admin dan password wajib diisi');
-      return;
+  async function setPrivilege() {
+    if (!privilegeTarget || !privilegeRole) return;
+    privilegeBusy = true;
+    privilegeMsg  = '';
+    try {
+      const res = await fetch(`/api/users/${encodeURIComponent(privilegeTarget.username)}`, {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ action: 'set_role', role: privilegeRole }),
+      });
+      const data = await res.json();
+      if (data.ok || data.success) {
+        privilegeMsg = data.message ?? 'Role berhasil diubah';
+        await fetchUsers();
+        setTimeout(() => { privilegeTarget = null; privilegeMsg = ''; }, 1200);
+      } else {
+        privilegeMsg = data.error ?? 'Gagal mengubah role';
+      }
+    } catch (e) {
+      privilegeMsg = String(e);
     }
+    privilegeBusy = false;
+  }
+
+  async function createTenant() {
+    createTenantMsg = '';
+    if (!newTenant.name.trim()) { createTenantMsg = 'Nama organisasi wajib diisi.'; return; }
+    if (!newTenant.slug) newTenant.slug = generateSlug(newTenant.name);
+    if (!newTenant.adminName.trim()) { createTenantMsg = 'Nama admin wajib diisi.'; return; }
+    if (!newTenant.adminPassword) { createTenantMsg = 'Password admin wajib diisi.'; return; }
+
     submitting = true;
     try {
       const res = await fetch('/api/admin/tenant', {
@@ -525,12 +564,29 @@
         newTenant = {
           name: '', slug: '', primaryColor: '#3B82F6', logoUrl: '',
           planNextcloudGb: 50, planEmailGb: 50, planOdooGb: 50,
-          useCustomDomain: false, domain: '', adminName: '', adminPassword: ''
+          useCustomDomain: false, domain: '', adminName: '', adminEmail: '', adminPassword: '',
         };
+        createTenantMsg = '';
         await fetchTenants();
+        // Tampilkan hasil provisioning (reuse approveResult modal)
+        approveResult = {
+          reqId:         0,
+          tenant:        data.tenant,
+          adminUsername: data.adminUsername,
+          adminPassword: data.adminPassword,
+          domain:        data.domain,
+          steps:         data.steps,
+        };
+      } else {
+        createTenantMsg = data.error ?? 'Provisioning gagal.';
+        // Tetap tampilkan steps jika ada (untuk debugging)
+        if (data.steps) {
+          approveResult = { reqId: 0, error: data.error, steps: data.steps };
+          showAddTenant = false;
+        }
       }
     } catch (e) {
-      console.error('Create tenant failed:', e);
+      createTenantMsg = 'Koneksi gagal: ' + String(e);
     }
     submitting = false;
   }
@@ -842,6 +898,23 @@
   }
 
   // ── Mount ───────────────────────────────────────────────────
+  let refreshing = $state(false);
+
+  async function refresh() {
+    if (refreshing) return;
+    refreshing = true;
+    try {
+      const tab = activeTab;
+      if (tab === 'users')          await fetchUsers();
+      else if (tab === 'tenants')   await fetchTenants();
+      else if (tab === 'health')    await fetchHealth();
+      else if (tab === 'audit')     await fetchAuditLogs();
+      else if (tab === 'requests')  await fetchOnboardingRequests();
+    } finally {
+      refreshing = false;
+    }
+  }
+
   onMount(async () => {
     await Promise.allSettled([fetchUsers(), fetchTenants(), fetchHealth(), fetchAuditLogs(), fetchOnboardingRequests()]);
     loading = false;
@@ -862,6 +935,9 @@
         <input placeholder="Cari..." />
         <span class="kbd">⌘K</span>
       </div>
+      <button class="btn-icon" onclick={refresh} title="Refresh" class:spinning={refreshing}>
+        {@html I.refresh}
+      </button>
       <button class="btn-icon" style="position:relative">
         {@html I.bell}
         <span class="notif-dot"></span>
@@ -964,6 +1040,11 @@
                         onclick={() => { resetPwTarget = u; resetPwValue = ''; resetPwMsg = ''; }}>
                         {@html I.key}
                       </button>
+                      <button class="btn btn-ghost btn-sm" title="Ubah Privileges"
+                        style="color:var(--pri)"
+                        onclick={() => { privilegeTarget = u; privilegeRole = u.role === 'Superadmin' ? 'superadmin' : u.role; privilegeMsg = ''; }}>
+                        {@html I.lock}
+                      </button>
                       <button class="btn btn-ghost btn-sm"
                         style="color:{u.status === 'active' ? 'var(--warn)' : 'var(--ok)'}"
                         title={u.status === 'active' ? 'Suspend' : 'Aktifkan'}
@@ -984,43 +1065,76 @@
       </div>
 
       {#if showAddUser}
-        {@const emailDomain = auth.profile.isAdmin ? null : (auth.profile.tenantDomain || (auth.profile.organizationSlug ? auth.profile.organizationSlug + '.opsid.web.id' : null))}
-        <div class="modal-overlay" onclick={() => showAddUser = false}>
+        {@const selectedTenant = auth.profile.isAdmin
+          ? tenants.find(t => String(t.id) === String(newUser.tenantId))
+          : tenants.find(t => t.slug === auth.profile.organizationSlug)}
+        {@const emailDomain = selectedTenant?.domain
+          ?? (auth.profile.tenantDomain || null)}
+        <div class="modal-overlay" onclick={() => { showAddUser = false; newUserMsg = ''; }}>
           <div class="modal" onclick={(e) => e.stopPropagation()}>
             <div class="modal-head">
               <h3>Tambah User Baru</h3>
-              <button class="btn-icon" onclick={() => showAddUser = false}>{@html I.x}</button>
+              <button class="btn-icon" onclick={() => { showAddUser = false; newUserMsg = ''; }}>{@html I.x}</button>
             </div>
             <div class="modal-body">
               <div class="form-grid">
-                <div class="field"><label for="u-uid">Username</label><input id="u-uid" placeholder="john.doe" bind:value={newUser.username} /></div>
-                <div class="field"><label for="u-name">Nama Lengkap</label><input id="u-name" placeholder="John Doe" bind:value={newUser.fullname} /></div>
-                <div class="field">
-                  <label for="u-email">Email</label>
-                  <input id="u-email"
-                    placeholder={emailDomain ? `john@${emailDomain}` : 'john@opsid.web.id'}
-                    bind:value={newUser.email}
-                  />
-                  {#if emailDomain}
-                    <span style="font-size:10px;color:var(--fg-4)">Email harus @{emailDomain}</span>
-                  {/if}
+
+                {#if auth.profile.isAdmin}
+                  <div class="field" style="grid-column:span 3">
+                    <label for="u-tenant">Tenant</label>
+                    <select id="u-tenant" bind:value={newUser.tenantId}>
+                      <option value="">— OPSID Platform (opsid.web.id) —</option>
+                      {#each tenants as t}
+                        <option value={t.id}>{t.name} · {t.domain}</option>
+                      {/each}
+                    </select>
+                    {#if !newUser.tenantId}
+                      <span style="font-size:10px;color:var(--fg-4)">User platform tidak terikat tenant, bisa login SSO sebagai user OPSID biasa</span>
+                    {/if}
+                  </div>
+                {/if}
+
+                <div class="field" style="grid-column:span 2">
+                  <label for="u-name">Nama Lengkap</label>
+                  <input id="u-name" placeholder="Contoh: Budi Santoso" bind:value={newUser.fullname} />
                 </div>
-                <div class="field"><label for="u-dept">Departemen</label><input id="u-dept" placeholder="Engineering" bind:value={newUser.dept} /></div>
+
                 <div class="field">
                   <label for="u-role">Role</label>
                   <select id="u-role" bind:value={newUser.role}>
-                    <option value="Staff">Staff</option>
-                    <option value="Operator">Operator</option>
-                    <option value="Manager">Manager</option>
+                    <option value="member">Member</option>
                     <option value="org-admin">Tenant Admin</option>
                   </select>
                 </div>
-                <div class="field"><label for="u-pass">Password</label><input id="u-pass" type="password" placeholder="Min 8 karakter" bind:value={newUser.password} /></div>
+
+                <div class="field" style="grid-column:span 2">
+                  <label for="u-email">Email</label>
+                  <input id="u-email" type="email"
+                    placeholder={emailDomain ? `nama@${emailDomain}` : 'nama@domain.com'}
+                    bind:value={newUser.email}
+                  />
+                  {#if emailDomain}
+                    <span style="font-size:10px;color:var(--fg-4)">Domain: @{emailDomain}</span>
+                  {/if}
+                </div>
+
+                <div class="field">
+                  <label for="u-pass">Password</label>
+                  <input id="u-pass" type="password" placeholder="Min 8 karakter" bind:value={newUser.password} />
+                </div>
+
               </div>
-              <p class="field-hint" style="margin-top:14px">User akan otomatis dibuat di FreeIPA, Keycloak, SOGo, Nextcloud, dan Odoo.</p>
+
+              <p class="field-hint" style="margin-top:14px;color:var(--fg-4)">
+                User akan dibuat di FreeIPA + Keycloak dan langsung bisa login SSO.
+              </p>
+
+              {#if newUserMsg}
+                <p style="margin-top:8px;font-size:12px;color:var(--danger)">{newUserMsg}</p>
+              {/if}
             </div>
             <div class="modal-foot">
-              <button class="btn btn-secondary" onclick={() => showAddUser = false}>Batal</button>
+              <button class="btn btn-secondary" onclick={() => { showAddUser = false; newUserMsg = ''; }}>Batal</button>
               <button class="btn btn-primary" onclick={createUser} disabled={submitting}>
                 {submitting ? 'Membuat...' : 'Buat User'}
               </button>
@@ -1103,6 +1217,69 @@
           </div>
         </div>
       {/if}
+
+      <!-- ── Privilege Modal ──────────────────────────────────── -->
+      {#if privilegeTarget}
+        <div class="modal-overlay" onclick={() => { privilegeTarget = null; privilegeMsg = ''; }}>
+          <div class="modal" style="width:400px" onclick={(e) => e.stopPropagation()}>
+            <div class="modal-head">
+              <h3>Ubah Privileges</h3>
+              <button class="btn-icon" onclick={() => { privilegeTarget = null; privilegeMsg = ''; }}>{@html I.x}</button>
+            </div>
+            <div class="modal-body">
+              <div style="display:flex;align-items:center;gap:10px;padding:12px 0 20px;border-bottom:1px solid var(--bd-1);margin-bottom:20px">
+                <div class="av">{initials(privilegeTarget.name)}</div>
+                <div>
+                  <div style="font-size:14px;font-weight:600;color:var(--fg-1)">{privilegeTarget.name}</div>
+                  <div style="font-size:12px;color:var(--fg-4)" class="mono">{privilegeTarget.username}</div>
+                </div>
+              </div>
+
+              <div class="field">
+                <label style="margin-bottom:10px;display:block">Role Baru</label>
+                <div style="display:flex;flex-direction:column;gap:8px">
+                  <label style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid {privilegeRole==='member'?'var(--pri)':'var(--bd-1)'};border-radius:8px;cursor:pointer;background:{privilegeRole==='member'?'rgba(91,134,255,.07)':'var(--bg-1)'}">
+                    <input type="radio" bind:group={privilegeRole} value="member" style="accent-color:var(--pri)" />
+                    <div>
+                      <div style="font-size:13px;font-weight:500;color:var(--fg-1)">Member</div>
+                      <div style="font-size:11px;color:var(--fg-4)">Akses standar ke workspace</div>
+                    </div>
+                  </label>
+                  <label style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid {privilegeRole==='org-admin'?'var(--pri)':'var(--bd-1)'};border-radius:8px;cursor:pointer;background:{privilegeRole==='org-admin'?'rgba(91,134,255,.07)':'var(--bg-1)'}">
+                    <input type="radio" bind:group={privilegeRole} value="org-admin" style="accent-color:var(--pri)" />
+                    <div>
+                      <div style="font-size:13px;font-weight:500;color:var(--fg-1)">Tenant Admin</div>
+                      <div style="font-size:11px;color:var(--fg-4)">Kelola user dan pengaturan dalam tenant</div>
+                    </div>
+                  </label>
+                  {#if auth.profile.isAdmin}
+                    <label style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid {privilegeRole==='superadmin'?'#a78bfa':'var(--bd-1)'};border-radius:8px;cursor:pointer;background:{privilegeRole==='superadmin'?'rgba(167,139,250,.07)':'var(--bg-1)'}">
+                      <input type="radio" bind:group={privilegeRole} value="superadmin" style="accent-color:#a78bfa" />
+                      <div>
+                        <div style="font-size:13px;font-weight:500;color:#a78bfa">Superadmin</div>
+                        <div style="font-size:11px;color:var(--fg-4)">Akses penuh ke seluruh platform OPSID</div>
+                      </div>
+                    </label>
+                  {/if}
+                </div>
+              </div>
+
+              {#if privilegeMsg}
+                <p style="margin-top:12px;font-size:12px;color:{privilegeMsg.startsWith('Role') ? 'var(--ok)' : 'var(--danger)'}">
+                  {privilegeMsg}
+                </p>
+              {/if}
+            </div>
+            <div class="modal-foot">
+              <button class="btn btn-secondary" onclick={() => { privilegeTarget = null; privilegeMsg = ''; }}>Batal</button>
+              <button class="btn btn-primary" onclick={setPrivilege} disabled={privilegeBusy || !privilegeRole}>
+                {privilegeBusy ? 'Menyimpan...' : 'Simpan Privilege'}
+              </button>
+            </div>
+          </div>
+        </div>
+      {/if}
+
     {/if}
 
     <!-- ═══════ TENANT MANAGEMENT ═══════ -->
@@ -1216,38 +1393,43 @@
       {/if}
 
       {#if showAddTenant}
-        <div class="modal-overlay" onclick={() => showAddTenant = false}>
+        <div class="modal-overlay" onclick={() => { showAddTenant = false; createTenantMsg = ''; }}>
           <div class="modal" onclick={(e) => e.stopPropagation()}>
             <div class="modal-head">
-              <h3>Buat Organisasi Baru</h3>
-              <button class="btn-icon" onclick={() => showAddTenant = false}>{@html I.x}</button>
+              <h3>Onboarding Tenant Baru</h3>
+              <button class="btn-icon" onclick={() => { showAddTenant = false; createTenantMsg = ''; }}>{@html I.x}</button>
             </div>
             <div class="modal-body">
               <div class="form-grid-2">
+
                 <div class="field" style="grid-column:span 2">
                   <label for="t-name">Nama Organisasi</label>
                   <input id="t-name" placeholder="PT Contoh Indonesia" bind:value={newTenant.name}
                     oninput={() => { if (!slugManuallyEdited) newTenant.slug = generateSlug(newTenant.name); }} />
                 </div>
+
                 <div class="field">
-                  <label for="t-slug">Slug URL</label>
+                  <label for="t-slug">Slug / ID Unik</label>
                   <input id="t-slug" placeholder="auto dari nama" bind:value={newTenant.slug}
                     oninput={() => { slugManuallyEdited = newTenant.slug.length > 0; }} />
                   <span class="field-preview">&#8618; {tenantSubdomain}</span>
                 </div>
+
                 <div class="field">
                   <label for="t-color">Warna Brand</label>
                   <input id="t-color" type="color" bind:value={newTenant.primaryColor} style="height:40px;padding:4px" />
                 </div>
+
                 <div class="field" style="grid-column:span 2">
-                  <label for="t-logo">Logo URL (opsional)</label>
+                  <label for="t-logo">Logo URL <span style="color:var(--fg-4);font-weight:400">(opsional)</span></label>
                   <input id="t-logo" placeholder="https://cdn.contoh.co.id/logo.png" bind:value={newTenant.logoUrl} />
                 </div>
+
                 <div class="field" style="grid-column:span 2">
                   <label>Quota Penyimpanan</label>
                   <div class="quota-row">
                     <div class="field">
-                      <label for="t-nc" class="sublabel">Nextcloud (GB)</label>
+                      <label for="t-nc" class="sublabel">Drive (GB)</label>
                       <input id="t-nc" type="number" min="1" bind:value={newTenant.planNextcloudGb} />
                     </div>
                     <div class="field">
@@ -1255,42 +1437,61 @@
                       <input id="t-em" type="number" min="1" bind:value={newTenant.planEmailGb} />
                     </div>
                     <div class="field">
-                      <label for="t-od" class="sublabel">Odoo (GB)</label>
+                      <label for="t-od" class="sublabel">ERP (GB)</label>
                       <input id="t-od" type="number" min="1" bind:value={newTenant.planOdooGb} />
                     </div>
                   </div>
                 </div>
+
                 <div class="field" style="grid-column:span 2">
                   <label class="checkbox-label">
                     <input type="checkbox" bind:checked={newTenant.useCustomDomain} />
-                    Organisasi punya domain sendiri
+                    Organisasi menggunakan domain sendiri (custom domain)
                   </label>
                 </div>
+
                 {#if newTenant.useCustomDomain}
                   <div class="field" style="grid-column:span 2">
                     <label for="t-domain">Domain Custom</label>
                     <input id="t-domain" placeholder="workspace.perusahaan.co.id" bind:value={newTenant.domain} />
+                    <span style="font-size:10px;color:var(--fg-4)">Contoh: portal.1ds.biz.id — customer tambahkan A record ke DNS mereka sendiri</span>
                   </div>
                 {/if}
-                <div class="admin-preview" style="grid-column:span 2">
-                  <span class="field-hint">Email admin yang akan dibuat:</span>
-                  <div class="admin-email">{tenantAdminEmail}</div>
+
+                <div style="grid-column:span 2;background:var(--bg-2);border:1px solid var(--bd-1);border-radius:8px;padding:12px 14px">
+                  <div style="font-size:11px;color:var(--fg-4);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Akun Admin Tenant</div>
+                  <div style="font-size:12px;color:var(--fg-3)">Email admin: <span class="mono" style="color:var(--pri)">{tenantAdminEmail}</span></div>
                 </div>
+
                 <div class="field">
-                  <label for="t-aname">Nama Admin Tenant</label>
+                  <label for="t-aname">Nama Admin</label>
                   <input id="t-aname" placeholder="Budi Santoso" bind:value={newTenant.adminName} />
                 </div>
                 <div class="field">
-                  <label for="t-apass">Password Awal Admin</label>
+                  <label for="t-apass">Password Awal</label>
                   <input id="t-apass" type="password" placeholder="Min 8 karakter" bind:value={newTenant.adminPassword} />
                 </div>
+
+                <div class="field" style="grid-column:span 2">
+                  <label for="t-aemail">Email Notifikasi Admin <span style="color:var(--fg-4);font-weight:400">(untuk welcome email)</span></label>
+                  <input id="t-aemail" type="email" placeholder="admin@gmail.com" bind:value={newTenant.adminEmail} />
+                  <span style="font-size:10px;color:var(--fg-4)">Kosongkan jika tidak perlu kirim welcome email</span>
+                </div>
+
               </div>
-              <p class="field-hint" style="margin-top:14px">Sistem otomatis buat Nginx config + Keycloak Organization + FreeIPA group + user admin.</p>
+
+              <p class="field-hint" style="margin-top:14px;color:var(--fg-4)">
+                Provisioning otomatis: Nginx · Keycloak · FreeIPA · Nextcloud · Dovecot · Odoo
+              </p>
+
+              {#if createTenantMsg}
+                <p style="margin-top:10px;font-size:12px;color:var(--danger)">{createTenantMsg}</p>
+              {/if}
             </div>
             <div class="modal-foot">
-              <button class="btn btn-secondary" onclick={() => showAddTenant = false}>Batal</button>
+              <button class="btn btn-secondary" onclick={() => { showAddTenant = false; createTenantMsg = ''; }}>Batal</button>
               <button class="btn btn-primary" onclick={createTenant} disabled={submitting}>
-                {submitting ? 'Mengaktivasi...' : 'Aktivasi Tenant'}
+                {submitting ? 'Memproses provisioning...' : 'Buat Tenant'}
               </button>
             </div>
           </div>
@@ -2180,6 +2381,8 @@
   .page-sub { font-size:13px; color:var(--fg-3); margin-top:4px; }
 
   /* ── Tabs ─────────────────────────────────────────────────── */
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .spinning :global(svg) { animation: spin .7s linear infinite; }
   .tab-bar { display:flex; gap:2px; padding:4px; background:var(--bg-2); border-radius:var(--r-md); align-self:flex-start; }
   .tab-btn { display:flex; align-items:center; gap:7px; padding:8px 16px; border-radius:var(--r-sm); font-size:13px; font-weight:500; color:var(--fg-3); transition:all .15s; background:none; border:none; cursor:pointer; font-family:inherit; }
   .tab-btn:hover { color:var(--fg-2); background:var(--bg-3); }

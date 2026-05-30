@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import db from '$lib/db';
-import { provisionTenant, generateSlug } from '$lib/server/tenantProvisioning';
+import { provisionTenant, generateSlug, sendWelcomeEmail } from '$lib/server/tenantProvisioning';
 
 function decodeToken(token: string): any {
   try {
@@ -46,7 +46,7 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 
   const {
     name, slug: inputSlug, primaryColor, logoUrl,
-    useCustomDomain, domain,
+    useCustomDomain, domain, adminEmail,
     planNextcloudGb, planEmailGb, planOdooGb,
     adminName, adminPassword,
   } = body;
@@ -55,16 +55,40 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
   if (!adminName || !adminPassword) return json({ error: 'adminName dan adminPassword wajib' }, { status: 400 });
 
   const slug         = (inputSlug || generateSlug(name)).trim();
-  const tenantDomain = useCustomDomain && domain ? domain : `${slug}.opsid.web.id`;
+  const domainType   = (useCustomDomain && domain) ? 'custom_domain' : 'subdomain';
+  const tenantDomain = domainType === 'custom_domain' ? domain : `${slug}.opsid.web.id`;
 
   const result = await provisionTenant({
-    name, slug, domain: tenantDomain,
+    name, slug,
+    domain:      tenantDomain,
+    domain_type: domainType,
     primaryColor, logoUrl,
     planNextcloudGb, planEmailGb, planOdooGb,
     adminName, adminPassword,
-    createdBy: auth.username,
+    adminEmail:  adminEmail || undefined,
+    createdBy:   auth.username,
   });
 
-  if (!result.ok) return json({ ok: false, error: result.error }, { status: 500 });
-  return json({ ok: true, tenant: result.tenant, steps: result.steps });
+  if (!result.ok) return json({ ok: false, error: result.error, steps: result.steps }, { status: 500 });
+
+  // Send welcome email to admin (best-effort, non-blocking)
+  const picEmail = adminEmail || `${result.adminUsername}@${tenantDomain}`;
+  sendWelcomeEmail({
+    toEmail:    picEmail,
+    toName:     adminName,
+    company:    name,
+    domain:     tenantDomain,
+    username:   result.adminUsername ?? adminName,
+    password:   adminPassword,
+    domainType,
+  }).catch(e => console.error('[AdminTenant] welcome email failed:', String(e)));
+
+  return json({
+    ok:            true,
+    tenant:        result.tenant,
+    adminUsername: result.adminUsername,
+    adminPassword,
+    domain:        tenantDomain,
+    steps:         result.steps,
+  });
 };

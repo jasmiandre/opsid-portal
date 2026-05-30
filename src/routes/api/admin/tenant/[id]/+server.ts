@@ -150,6 +150,58 @@ export const PUT: RequestHandler = async ({ params, request, cookies }) => {
   }
 };
 
+// ── KC org lookup: search by domain first (more reliable), fallback by slug ──
+async function findKcOrgId(token: string, slug: string, domain: string): Promise<string | null> {
+  async function searchOrg(q: string): Promise<any[]> {
+    const r = await fetch(
+      `${KC_BASE}/admin/realms/opsid-internal/organizations?search=${encodeURIComponent(q)}`,
+      { headers: { 'Authorization': `Bearer ${token}` } }
+    );
+    if (!r.ok) return [];
+    return r.json().catch(() => []);
+  }
+
+  const byDomain = await searchOrg(domain);
+  const matchDomain = byDomain.find((o: any) =>
+    o.alias === slug || o.domains?.some((d: any) => d.name === domain)
+  );
+  if (matchDomain?.id) return matchDomain.id;
+
+  const bySlug = await searchOrg(slug);
+  const matchSlug = bySlug.find((o: any) =>
+    o.alias === slug || o.domains?.some((d: any) => d.name === domain)
+  );
+  return matchSlug?.id ?? null;
+}
+
+// ── FreeIPA session login ────────────────────────────────────────────────────
+const IPA_URL   = 'https://ipa.opsid.web.id/ipa';
+const IPA_ADMIN = 'admin';
+const IPA_PASS  = 'Sandiaman2026';
+
+async function ipaLogin(): Promise<string> {
+  const res = await fetch(`${IPA_URL}/session/login_password`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Referer': IPA_URL,
+      'Accept': 'text/plain',
+    },
+    body: `user=${IPA_ADMIN}&password=${encodeURIComponent(IPA_PASS)}`,
+  });
+  if (!res.ok) throw new Error(`FreeIPA login failed: ${res.status}`);
+  return res.headers.get('set-cookie') ?? '';
+}
+
+async function ipaCall(cookie: string, method: string, args: any[], kwargs: any = {}): Promise<any> {
+  const res = await fetch(`${IPA_URL}/session/json`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Referer': IPA_URL, 'Cookie': cookie },
+    body: JSON.stringify({ method, params: [args, kwargs], id: 0 }),
+  });
+  return res.json();
+}
+
 export const DELETE: RequestHandler = async ({ params, cookies }) => {
   // Only superadmin can delete tenants
   const auth = parseAuth(cookies);
@@ -159,8 +211,14 @@ export const DELETE: RequestHandler = async ({ params, cookies }) => {
   try {
     const result = await db.query(`SELECT * FROM tenants WHERE id = $1`, [params.id]);
     if (!result.rows.length) return json({ error: 'Tenant tidak ditemukan' }, { status: 404 });
-
     const tenant = result.rows[0];
+
+    // Collect usernames before deleting tenant_users (cascades with tenant delete)
+    const usersRes = await db.query(
+      `SELECT username FROM tenant_users WHERE tenant_id = $1`,
+      [params.id]
+    );
+    const usernames: string[] = usersRes.rows.map((r: any) => r.username);
 
     // 1. Null-out onboarding_requests.tenant_id to avoid FK violation
     await db.query(
@@ -168,42 +226,57 @@ export const DELETE: RequestHandler = async ({ params, cookies }) => {
       [params.id]
     ).catch(() => null);
 
-    // 2. Hapus dari Nginx
+    // 2. Hapus vhost dari Nginx
     await fetch(`${NGINX_API}/site/${encodeURIComponent(tenant.domain)}`, {
       method: 'DELETE',
     }).catch(() => null);
 
-    // 3. Hapus Keycloak Organization
+    // 3. Hapus Keycloak Organization (search by domain → reliable)
     try {
-      const token = await getKcToken();
-      const orgsRes = await fetch(
-        `${KC_BASE}/admin/realms/opsid-internal/organizations?search=${encodeURIComponent(tenant.slug)}`,
-        { headers: { 'Authorization': `Bearer ${token}` } }
-      );
-      const orgs = await orgsRes.json();
-      if (Array.isArray(orgs) && orgs.length > 0) {
-        const org = orgs.find((o: any) => o.alias === tenant.slug) ?? orgs[0];
+      const token  = await getKcToken();
+      const orgId  = await findKcOrgId(token, tenant.slug, tenant.domain);
+      if (orgId) {
         await fetch(
-          `${KC_BASE}/admin/realms/opsid-internal/organizations/${org.id}`,
+          `${KC_BASE}/admin/realms/opsid-internal/organizations/${orgId}`,
           { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } }
         );
       }
-    } catch { /* continue on failure */ }
 
-    // 4. Hapus FreeIPA group (best-effort)
-    await fetch(IPA_BASE, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Referer': 'https://ipa.opsid.web.id/ipa' },
-      body: JSON.stringify({ method: 'group_del', params: [[`${tenant.slug}-users`], {}] }),
-    }).catch(() => null);
+      // 4. Hapus Keycloak users (best-effort per user)
+      for (const username of usernames) {
+        try {
+          const usrRes = await fetch(
+            `${KC_BASE}/admin/realms/opsid-internal/users?username=${encodeURIComponent(username)}&exact=true`,
+            { headers: { 'Authorization': `Bearer ${token}` } }
+          );
+          const users = await usrRes.json().catch(() => []);
+          if (Array.isArray(users) && users.length > 0) {
+            await fetch(
+              `${KC_BASE}/admin/realms/opsid-internal/users/${users[0].id}`,
+              { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } }
+            );
+          }
+        } catch { /* best-effort per user */ }
+      }
+    } catch { /* KC failure non-fatal — continue */ }
 
-    // 5. Hapus dari PostgreSQL (tenant_users cascades)
+    // 5. Hapus FreeIPA users + group (best-effort, dengan session login)
+    try {
+      const ipaCookie = await ipaLogin();
+      for (const username of usernames) {
+        await ipaCall(ipaCookie, 'user_del', [username], { continue: true }).catch(() => null);
+      }
+      await ipaCall(ipaCookie, 'group_del', [`${tenant.slug}-users`], {}).catch(() => null);
+    } catch { /* FreeIPA failure non-fatal */ }
+
+    // 6. Hapus dari PostgreSQL (tenant_users, audit_logs references cascade)
     await db.query(`DELETE FROM tenants WHERE id = $1`, [params.id]);
 
-    // 6. Audit log
+    // 7. Audit log
     await db.query(
       `INSERT INTO audit_logs (actor, action, target, metadata) VALUES ($1, $2, $3, $4)`,
-      [auth.username, 'DELETE_TENANT', tenant.domain, JSON.stringify({ name: tenant.name, slug: tenant.slug })]
+      [auth.username, 'DELETE_TENANT', tenant.domain,
+       JSON.stringify({ name: tenant.name, slug: tenant.slug, usersDeleted: usernames })]
     );
 
     return json({ ok: true });
